@@ -1,3 +1,14 @@
+const loginBtn =
+document.getElementById("loginBtn");
+
+loginBtn.addEventListener(
+"click",
+() => {
+
+window.location.href =
+"https://bulk-email-sender-uaig.onrender.com/auth/google";
+
+});
 const sendBtn =
 document.getElementById("sendBtn");
 
@@ -69,7 +80,7 @@ async () => {
     }
 
     const response = await fetch(
-      "https://bulk-email-sender-uaig.onrender.com",
+      "https://bulk-email-sender-uaig.onrender.com/send-emails",
       {
         method:"POST",
         credentials:"include",
