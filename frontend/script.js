@@ -69,7 +69,7 @@ async () => {
     }
 
     const response = await fetch(
-      "http://localhost:5000/send-emails",
+      "https://bulk-email-sender-uaig.onrender.com",
       {
         method:"POST",
         credentials:"include",
