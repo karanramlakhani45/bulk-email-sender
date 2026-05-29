@@ -1,0 +1,78 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+
+  <meta charset="UTF-8">
+
+  <meta
+    name="viewport"
+    content="width=device-width, initial-scale=1.0"
+  >
+
+  <title>Bulk Email Sender</title>
+
+  <link rel="stylesheet" href="style.css">
+
+</head>
+
+<body>
+
+  <div class="container">
+
+    <h1>Bulk Email Sender</h1>
+
+    <p class="subtitle">
+
+      Send bulk emails quickly and easily
+
+    </p>
+
+    <textarea
+      id="emails"
+      placeholder="Enter emails (one per line)"
+    ></textarea>
+
+    <input
+      type="text"
+      id="subject"
+      placeholder="Enter Subject"
+    >
+
+    <textarea
+      id="message"
+      placeholder="Enter Message"
+    ></textarea>
+
+    <input
+      type="file"
+      id="attachment"
+    >
+
+    <button id="sendBtn">
+
+      🚀 Send Emails
+
+    </button>
+
+    <div id="loading">
+
+      <div class="loader"></div>
+
+      Sending Emails...
+
+    </div>
+
+    <div id="result"></div>
+
+    <p class="footer">
+
+      Developed by Karan
+
+    </p>
+
+  </div>
+
+  <script src="script.js"></script>
+
+</body>
+</html>
