@@ -21,8 +21,6 @@ app.use(cors({
 
 }));
 
-app.use(express.json());
-
 app.use(
 
   session({
@@ -32,6 +30,14 @@ app.use(
     resave:false,
 
     saveUninitialized:false,
+
+    cookie:{
+
+      secure:true,
+
+      sameSite:"none"
+
+    }
 
   })
 
