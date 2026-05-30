@@ -84,17 +84,11 @@ document.addEventListener("DOMContentLoaded", () => {
 
         loading.style.display = "none";
 
-        if(data.success){
-
-          result.innerHTML =
-          "✅ Emails Sent Successfully";
-
-        }else{
-
-          result.innerHTML =
-          "❌ Failed To Send Emails";
-
-        }
+       if(data.success){
+           result.innerHTML = "✅ Emails Sent Successfully";
+          }else{
+              result.innerHTML = "❌ " + (data.error || data.message || "Failed To Send Emails");
+            }
 
       }catch(error){
 
