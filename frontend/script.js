@@ -1,117 +1,114 @@
-const loginBtn =
-document.getElementById("loginBtn");
+document.addEventListener("DOMContentLoaded", () => {
 
-loginBtn.addEventListener(
-"click",
-() => {
+  const sendBtn =
+  document.getElementById("sendBtn");
 
-window.location.href =
-"https://bulk-email-sender-uaig.onrender.com/auth/google";
+  const loading =
+  document.getElementById("loading");
 
-});
-const sendBtn =
-document.getElementById("sendBtn");
+  const result =
+  document.getElementById("result");
 
-const loading =
-document.getElementById("loading");
+  sendBtn.addEventListener(
+    "click",
 
-const result =
-document.getElementById("result");
+    async () => {
 
-sendBtn.addEventListener(
-"click",
+      const emailsText =
+      document.getElementById("emails").value;
 
-async () => {
+      const subject =
+      document.getElementById("subject").value;
 
-  const emailsText =
-  document.getElementById("emails").value;
+      const message =
+      document.getElementById("message").value;
 
-  const subject =
-  document.getElementById("subject").value;
+      const attachment =
+      document.getElementById("attachment").files[0];
 
-  const message =
-  document.getElementById("message").value;
+      if(!emailsText || !subject || !message){
 
-  const attachment =
-  document.getElementById("attachment").files[0];
+        alert("Please fill all fields");
 
-  if(!emailsText || !subject || !message){
-
-    alert("Please fill all fields");
-
-    return;
-  }
-
-  const emails = emailsText
-  .split("\n")
-  .map(email => email.trim())
-  .filter(email => email !== "");
-
-  loading.style.display = "block";
-
-  result.innerHTML = "";
-
-  try{
-
-    const formData = new FormData();
-
-    formData.append(
-      "emails",
-      JSON.stringify(emails)
-    );
-
-    formData.append(
-      "subject",
-      subject
-    );
-
-    formData.append(
-      "message",
-      message
-    );
-
-    if(attachment){
-
-      formData.append(
-        "attachment",
-        attachment
-      );
-
-    }
-
-    const response = await fetch(
-      "https://bulk-email-sender-uaig.onrender.com/send-emails",
-      {
-        method:"POST",
-        credentials:"include",
-        body:formData
+        return;
       }
-    );
 
-    const data =
-    await response.json();
+      const emails = emailsText
+      .split("\n")
+      .map(email => email.trim())
+      .filter(email => email !== "");
 
-    loading.style.display = "none";
+      loading.style.display = "block";
 
-    if(data.success){
+      result.innerHTML = "";
 
-      result.innerHTML =
-      " Emails Sent Successfully";
+      try{
 
-    }else{
+        const formData = new FormData();
 
-      result.innerHTML =
-      " Failed to Send Emails";
+        formData.append(
+          "emails",
+          JSON.stringify(emails)
+        );
+
+        formData.append(
+          "subject",
+          subject
+        );
+
+        formData.append(
+          "message",
+          message
+        );
+
+        if(attachment){
+
+          formData.append(
+            "attachment",
+            attachment
+          );
+
+        }
+
+        const response = await fetch(
+          "https://bulk-email-sender-uaig.onrender.com/send-emails",
+          {
+            method:"POST",
+            credentials:"include",
+            body:formData
+          }
+        );
+
+        const data =
+        await response.json();
+
+        loading.style.display = "none";
+
+        if(data.success){
+
+          result.innerHTML =
+          "✅ Emails Sent Successfully";
+
+        }else{
+
+          result.innerHTML =
+          "❌ Failed To Send Emails";
+
+        }
+
+      }catch(error){
+
+        console.log(error);
+
+        loading.style.display = "none";
+
+        result.innerHTML =
+        "❌ Failed To Send Emails";
+
+      }
 
     }
 
-  }catch(error){
-
-    loading.style.display = "none";
-
-    result.innerHTML =
-    " Failed to Send Emails";
-
-  }
+  );
 
 });
