@@ -104,15 +104,18 @@ app.post(
       const message = req.body.message;
 
       const transporter = nodemailer.createTransport({
-        service: "gmail",
-        auth: {
-          type: "OAuth2",
-          user: req.user.emails[0].value,
-          clientId: process.env.CLIENT_ID,
-          clientSecret: process.env.CLIENT_SECRET,
-          accessToken: req.user.accessToken
-        }
-      });
+  host: "smtp.gmail.com",
+  port: 587,
+  secure: false,
+  family: 4,
+  auth: {
+    type: "OAuth2",
+    user: req.user.emails[0].value,
+    clientId: process.env.CLIENT_ID,
+    clientSecret: process.env.CLIENT_SECRET,
+    accessToken: req.user.accessToken
+  }
+});
 
       for (const email of emails) {
 
