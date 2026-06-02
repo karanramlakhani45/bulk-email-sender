@@ -128,7 +128,7 @@ app.post(
           from: req.user.emails[0].value,
           to: email,
           subject,
-          text: message
+          html: message
         };
 
         if (req.file) {

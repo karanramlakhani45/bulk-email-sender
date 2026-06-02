@@ -2,64 +2,251 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8">
-  <meta
-    name="viewport"
-    content="width=device-width, initial-scale=1.0"
-  >
-  <title>Bulk Email Sender</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Bulk Email Sender - Dashboard</title>
 
-  <link rel="stylesheet" href="style.css">
+  <!-- External Stylesheets -->
+  <link href="https://cdn.jsdelivr.net/npm/quill@2.0.2/dist/quill.snow.css" rel="stylesheet" />
+  <link rel="stylesheet" href="dashboard.css">
 </head>
-
 <body>
 
-  <div class="container">
+  <!-- Toast Notification Container -->
+  <div id="toastContainer" class="toast-container"></div>
 
-    <h1>Bulk Email Sender</h1>
+  <div class="dashboard-container">
+    
+    <!-- Dashboard Header -->
+    <header class="dashboard-header">
+      <div class="header-title">
+        <h1>Bulk Email Sender</h1>
+        <p class="subtitle">Personalized rich HTML email campaign orchestrator</p>
+      </div>
+      <div class="header-actions">
+        <div class="user-badge">
+          <img id="userAvatar" src="data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='%23764ba2'><path d='M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm0 3c1.66 0 3 1.34 3 3s-1.34 3-3 3-3-1.34-3-3 1.34-3 3-3zm0 14.2c-2.5 0-4.71-1.28-6-3.22.03-1.99 4-3.08 6-3.08 1.99 0 5.97 1.09 6 3.08-1.29 1.94-3.5 3.22-6 3.22z'/></svg>" alt="User Profile">
+          <span id="userEmail" class="user-email">Verifying session...</span>
+        </div>
+        <button id="logoutBtn" class="btn-logout">Logout</button>
+      </div>
+    </header>
 
-    <p class="subtitle">
-      Send bulk emails quickly and easily
-    </p>
+    <!-- Main Dashboard Grid -->
+    <div class="dashboard-grid">
+      
+      <!-- Left Column: CSV Parsing & Recipients View -->
+      <div class="dashboard-sidebar">
+        
+        <!-- CSV Upload Card -->
+        <div class="glass-card">
+          <div class="card-title">
+            <span>CSV Upload</span>
+            <span id="recipientCountBadge" class="count-badge">0</span>
+          </div>
+          
+          <div class="form-group">
+            <label>Upload Recipient List (CSV)</label>
+            
+            <div id="uploadZone" class="upload-zone">
+              <svg viewBox="0 0 24 24">
+                <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M17 8l-5-5-5 5M12 3v12"/>
+              </svg>
+              <p>Drag and drop your CSV here, or <strong>browse</strong></p>
+              <span>Supported columns: name, email, company, phone</span>
+            </div>
+            
+            <input type="file" id="csvFileInput" accept=".csv" style="display: none;">
+            
+            <!-- File details badge -->
+            <div id="fileInfoBadge" class="file-info-badge" style="display: none;">
+              <span id="fileNameDisplay">file.csv (0 recipients)</span>
+              <button id="removeFileBtn" title="Remove File">&times;</button>
+            </div>
+          </div>
+        </div>
 
-    <textarea
-      id="emails"
-      placeholder="Enter emails (one per line)"
-    ></textarea>
+        <!-- Recipients Preview Card -->
+        <div class="glass-card">
+          <div class="card-title">
+            <span>Recipient Preview</span>
+          </div>
+          
+          <div class="table-wrapper">
+            <table class="recipient-table">
+              <thead>
+                <tr>
+                  <th>Name</th>
+                  <th>Email</th>
+                  <th>Company</th>
+                  <th>Phone</th>
+                  <th>Status</th>
+                </tr>
+              </thead>
+              <tbody id="recipientTableBody">
+                <!-- Dynamic recipient rows generated here -->
+              </tbody>
+            </table>
+            <div id="emptyState" class="empty-state">
+              No recipients loaded. Upload a CSV to preview.
+            </div>
+          </div>
+        </div>
 
-    <input
-      type="text"
-      id="subject"
-      placeholder="Enter Subject"
-    >
+      </div>
 
-    <textarea
-      id="message"
-      placeholder="Enter Message"
-    ></textarea>
+      <!-- Right Column: Templates & Campaign Creation -->
+      <div class="dashboard-main">
+        
+        <!-- Templates Management Card -->
+        <div class="glass-card">
+          <div class="card-title">
+            <span>Email Templates</span>
+          </div>
+          
+          <div class="form-group">
+            <label for="templateSelector">Select Template</label>
+            <select id="templateSelector">
+              <option value="" disabled selected>-- Choose Email Template --</option>
+            </select>
+          </div>
 
-    <input
-      type="file"
-      id="attachment"
-    >
+          <div class="template-actions">
+            <button id="newTemplateBtn" class="btn btn-glass">Create New</button>
+            <button id="saveTemplateBtn" class="btn btn-success">Save Template</button>
+            <button id="deleteTemplateBtn" class="btn btn-danger">Delete Template</button>
+          </div>
+        </div>
 
-    <button id="sendBtn">
-      Send Emails
-    </button>
+        <!-- Email Creator & Customizer Card -->
+        <div class="glass-card">
+          <div class="card-title">
+            <span>Personalize & Craft Email</span>
+          </div>
 
-    <div id="loading">
-      <div class="loader"></div>
-      Sending Emails...
+          <!-- Subject Field -->
+          <div class="form-group">
+            <label for="subjectInput">Email Subject</label>
+            <input type="text" id="subjectInput" placeholder="Welcome {{name}} to {{company}}!">
+          </div>
+
+          <!-- Dynamic Variables helpers -->
+          <div class="form-group">
+            <label>Template Variables (Click to insert)</label>
+            <div class="variable-badges">
+              <span class="var-badge" data-var="{{name}}" title="Insert Recipient Name">{{name}}</span>
+              <span class="var-badge" data-var="{{email}}" title="Insert Recipient Email">{{email}}</span>
+              <span class="var-badge" data-var="{{company}}" title="Insert Recipient Company">{{company}}</span>
+              <span class="var-badge" data-var="{{phone}}" title="Insert Recipient Phone">{{phone}}</span>
+            </div>
+          </div>
+
+          <!-- Quill Rich Text Editor -->
+          <div class="form-group">
+            <label>Email Body (Rich HTML)</label>
+            <div class="editor-container-wrapper">
+              <div id="editor"></div>
+            </div>
+          </div>
+
+          <!-- File Attachment -->
+          <div class="form-group">
+            <label for="attachmentFileInput">Add File Attachment (Optional)</label>
+            <div class="attachment-group">
+              <input type="file" id="attachmentFileInput">
+            </div>
+          </div>
+
+          <!-- Sending Actions -->
+          <div class="send-controls">
+            <button id="previewBtn" class="btn btn-warning">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" style="margin-right:4px;">
+                <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/>
+              </svg>
+              Preview Email
+            </button>
+            <button id="sendBtn" class="btn btn-primary">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" style="margin-right:4px;">
+                <line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/>
+              </svg>
+              Send Campaign
+            </button>
+          </div>
+
+          <!-- Sequential Sending Progress Panel -->
+          <div id="progressSection" class="progress-section" style="display: none;">
+            <div class="progress-header">
+              <span id="progressCountLabel">Sending 0 / 0</span>
+              <span id="progressPercentLabel">0%</span>
+            </div>
+            
+            <div class="progress-bar-wrapper">
+              <div id="progressBarFill" class="progress-bar-fill"></div>
+            </div>
+
+            <div class="progress-stats">
+              <span>Success: <strong id="progressSuccessCount" style="color:#a3ffc0">0</strong></span>
+              <span>Failed: <strong id="progressFailedCount" style="color:#ffb3b9">0</strong></span>
+              <span>Recipients: <strong id="uniqueCount">0</strong></span>
+              <button id="cancelSendingBtn" class="cancel-send-btn">Cancel</button>
+            </div>
+
+            <!-- Console scrolling log -->
+            <div id="resultLog" class="result-log"></div>
+          </div>
+
+        </div>
+
+      </div>
+
     </div>
-
-    <div id="result"></div>
-
-    <button id="logoutBtn">
-      Logout
-    </button>
 
   </div>
 
-  <script src="script.js"></script>
+  <!-- Interactive Email Preview Modal -->
+  <div id="previewModal" class="modal-overlay">
+    <div class="modal-content">
+      
+      <div class="modal-header">
+        <h3>Email Preview</h3>
+        <button id="closeModalBtn" class="modal-close">&times;</button>
+      </div>
+      
+      <div class="modal-body">
+        <!-- Mail envelope fields -->
+        <div class="preview-envelope">
+          <div class="envelope-row">
+            <span class="envelope-label">To:</span>
+            <span id="previewTo" class="envelope-value">Name &lt;email@example.com&gt;</span>
+          </div>
+          <div class="envelope-row">
+            <span class="envelope-label">Subject:</span>
+            <span id="previewSubject" class="envelope-value">Rendered Subject Line</span>
+          </div>
+        </div>
+
+        <!-- Rendered body preview wrapper -->
+        <div id="previewBody" class="preview-rendered-body">
+          <!-- Rendered HTML inserted here -->
+        </div>
+      </div>
+      
+      <div class="modal-footer">
+        <span id="previewIndexLabel" class="preview-index-label">Recipient 1 of 1</span>
+        <div class="preview-controls">
+          <button id="prevRecipientBtn" class="btn btn-glass">&larr; Previous</button>
+          <button id="nextRecipientBtn" class="btn btn-glass">Next &rarr;</button>
+        </div>
+      </div>
+
+    </div>
+  </div>
+
+  <!-- Third-party CDN Dependencies -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.4.1/papaparse.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/quill@2.0.2/dist/quill.js"></script>
+  
+  <!-- Project Scripts -->
+  <script src="dashboard.js"></script>
 
 </body>
 </html>
