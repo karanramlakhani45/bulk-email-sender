@@ -2,6 +2,7 @@ const express = require("express");
 const nodemailer = require("nodemailer");
 const cors = require("cors");
 const multer = require("multer");
+const fs = require("fs");
 const session = require("express-session");
 const passport = require("passport");
 const GoogleStrategy = require("passport-google-oauth20").Strategy;
@@ -84,6 +85,19 @@ app.get("/user", (req, res) => {
   });
 });
 
+app.get("/logout", (req, res, next) => {
+  req.logout((err) => {
+    if (err) { return next(err); }
+    req.session.destroy(() => {
+      res.clearCookie("connect.sid", {
+        secure: true,
+        sameSite: "none"
+      });
+      res.json({ success: true });
+    });
+  });
+});
+
 const upload = multer({ dest: "uploads/" });
 
 app.post(
@@ -104,21 +118,24 @@ app.post(
       const message = req.body.message;
 
       const transporter = nodemailer.createTransport({
-  host: "smtp.gmail.com",
-  port: 587,
-  secure: false,
-  family: 4,
-  auth: {
-    type: "OAuth2",
-    user: req.user.emails[0].value,
-    clientId: process.env.CLIENT_ID,
-    clientSecret: process.env.CLIENT_SECRET,
-    accessToken: req.user.accessToken
-  }
-});
+        host: "smtp.gmail.com",
+        port: 587,
+        secure: false,
+        family: 4,
+        auth: {
+          type: "OAuth2",
+          user: req.user.emails[0].value,
+          clientId: process.env.CLIENT_ID,
+          clientSecret: process.env.CLIENT_SECRET,
+          accessToken: req.user.accessToken
+        }
+      });
 
-      for (const email of emails) {
+      const sent = [];
+      const failed = [];
 
+      // Send emails in parallel
+      const emailPromises = emails.map(async (email) => {
         const mailOptions = {
           from: req.user.emails[0].value,
           to: email,
@@ -135,16 +152,39 @@ app.post(
           ];
         }
 
-        await transporter.sendMail(mailOptions);
+        try {
+          await transporter.sendMail(mailOptions);
+          sent.push(email);
+        } catch (err) {
+          console.error(`Failed sending to ${email}:`, err);
+          failed.push({ email, error: err.message });
+        }
+      });
+
+      await Promise.all(emailPromises);
+
+      // Cleanup uploaded file from server storage
+      if (req.file) {
+        fs.unlink(req.file.path, (err) => {
+          if (err) console.error("Error deleting file:", err);
+        });
       }
 
       res.json({
-        success: true
+        success: failed.length === 0,
+        sentCount: sent.length,
+        failedCount: failed.length,
+        failedList: failed
       });
 
     } catch (error) {
 
       console.error(error);
+
+      // Cleanup file if an error occurs
+      if (req.file) {
+        fs.unlink(req.file.path, () => {});
+      }
 
       res.json({
         success: false,
