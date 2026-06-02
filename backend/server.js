@@ -1,5 +1,6 @@
 const express = require("express");
 const nodemailer = require("nodemailer");
+const MailComposer = require("nodemailer/lib/mail-composer");
 const cors = require("cors");
 const multer = require("multer");
 const fs = require("fs");
@@ -118,24 +119,10 @@ app.post(
       const subject = req.body.subject;
       const message = req.body.message;
 
-      const transporter = nodemailer.createTransport({
-        host: "smtp.gmail.com",
-        port: 587,
-        secure: false,
-        family: 4,
-        auth: {
-          type: "OAuth2",
-          user: req.user.emails[0].value,
-          clientId: process.env.CLIENT_ID,
-          clientSecret: process.env.CLIENT_SECRET,
-          accessToken: req.user.accessToken
-        }
-      });
-
       const sent = [];
       const failed = [];
 
-      // Send emails in parallel
+      // Send emails in parallel using Gmail HTTP API
       const emailPromises = emails.map(async (email) => {
         const mailOptions = {
           from: req.user.emails[0].value,
@@ -154,7 +141,36 @@ app.post(
         }
 
         try {
-          await transporter.sendMail(mailOptions);
+          const composer = new MailComposer(mailOptions);
+          const mimeBuffer = await new Promise((resolve, reject) => {
+            composer.compile().build((err, msg) => {
+              if (err) reject(err);
+              else resolve(msg);
+            });
+          });
+
+          const encodedMessage = Buffer.from(mimeBuffer)
+            .toString("base64")
+            .replace(/\+/g, '-')
+            .replace(/\//g, '_')
+            .replace(/=+$/, '');
+
+          const response = await fetch("https://gmail.googleapis.com/gmail/v1/users/me/messages/send", {
+            method: "POST",
+            headers: {
+              "Authorization": `Bearer ${req.user.accessToken}`,
+              "Content-Type": "application/json"
+            },
+            body: JSON.stringify({
+              raw: encodedMessage
+            })
+          });
+
+          const data = await response.json();
+          if (!response.ok) {
+            throw new Error(data.error?.message || "Failed to send via Gmail API");
+          }
+
           sent.push(email);
         } catch (err) {
           console.error(`Failed sending to ${email}:`, err);
