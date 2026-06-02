@@ -67,9 +67,9 @@ document.addEventListener("DOMContentLoaded", () => {
         loading.style.display = "none";
 
         if (data.success) {
-          result.innerHTML = `✅ Sent all ${data.sentCount} emails successfully!`;
+          result.innerHTML = ` Sent all ${data.sentCount} emails successfully!`;
         } else {
-          let errorHtml = `❌ Failed to send ${data.failedCount || 0} email(s).`;
+          let errorHtml = ` Failed to send ${data.failedCount || 0} email(s).`;
           if (data.failedList && data.failedList.length > 0) {
             const listItems = data.failedList
               .map(item => `<li><strong>${item.email}</strong>: ${item.error}</li>`)
@@ -84,7 +84,7 @@ document.addEventListener("DOMContentLoaded", () => {
       } catch (error) {
         console.error(error);
         loading.style.display = "none";
-        result.innerHTML = "❌ Failed To Send Emails";
+        result.innerHTML = " Failed To Send Emails";
       }
     });
   }
