@@ -62,7 +62,8 @@ app.get(
       "profile",
       "email",
       "https://www.googleapis.com/auth/gmail.send"
-    ]
+    ],
+    prompt: "select_account"
   })
 );
 
