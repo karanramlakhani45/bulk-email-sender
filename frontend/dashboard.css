@@ -893,3 +893,230 @@ button.btn-logout:hover {
 .toast.info {
   border-left: 4px solid #8e2de2;
 }
+
+/* Responsive Overrides for Mobile and Tablet Compatibility */
+@media (max-width: 1024px) {
+  .dashboard-grid {
+    grid-template-columns: 1fr;
+    gap: 20px;
+  }
+}
+
+@media (max-width: 768px) {
+  body {
+    padding: 10px;
+    align-items: flex-start;
+  }
+
+  .dashboard-header {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 15px;
+    padding: 15px 20px;
+    border-radius: 15px;
+  }
+
+  .header-actions {
+    width: 100%;
+    justify-content: space-between;
+    flex-wrap: wrap;
+    gap: 10px;
+  }
+
+  .user-badge {
+    padding: 6px 12px;
+    font-size: 12px;
+  }
+
+  .user-badge img {
+    width: 24px;
+    height: 24px;
+  }
+
+  .glass-card {
+    padding: 18px;
+    border-radius: 15px;
+    margin-bottom: 15px;
+    gap: 15px;
+  }
+
+  .card-title {
+    font-size: 16px;
+    padding-bottom: 8px;
+  }
+
+  .header-title h1 {
+    font-size: 22px;
+  }
+
+  .header-title .subtitle {
+    font-size: 11px;
+  }
+
+  /* Table Horizontal Scrolling with smooth touch */
+  .table-wrapper {
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+    border-radius: 8px;
+    margin-top: 5px;
+  }
+
+  table.recipient-table th,
+  table.recipient-table td {
+    padding: 8px 10px;
+    font-size: 11px;
+  }
+
+  /* Compact template actions row wrapping */
+  .template-actions {
+    grid-template-columns: 1fr !important;
+    gap: 8px;
+  }
+
+  button.btn {
+    padding: 10px 14px;
+    font-size: 13px;
+    border-radius: 8px;
+  }
+
+  /* Touch-friendly larger variable helper badges */
+  .var-badge {
+    padding: 6px 12px;
+    font-size: 12px;
+    border-radius: 6px;
+  }
+
+  /* Horizontally Scrollable Quill Toolbar for Mobile Screen Space */
+  .ql-toolbar.ql-snow {
+    display: flex !important;
+    flex-wrap: nowrap !important;
+    overflow-x: auto !important;
+    -webkit-overflow-scrolling: touch;
+    gap: 5px;
+    padding: 6px 8px !important;
+    align-items: center;
+  }
+
+  .ql-toolbar.ql-snow::-webkit-scrollbar {
+    display: none !important; /* Hide scrollbars for toolbars */
+  }
+
+  .ql-toolbar.ql-snow .ql-formats {
+    margin-right: 4px !important;
+    margin-top: 0 !important;
+    margin-bottom: 0 !important;
+    display: inline-flex !important;
+    align-items: center;
+    flex-shrink: 0;
+  }
+
+  .ql-container.ql-snow {
+    height: 200px;
+    font-size: 13px;
+  }
+
+  /* Responsive Control Grids */
+  .send-controls {
+    grid-template-columns: 1fr !important;
+    gap: 10px;
+  }
+
+  /* Interactive Preview Modal Adaptations */
+  .modal-overlay {
+    padding: 10px;
+  }
+
+  .modal-content {
+    border-radius: 12px;
+    max-height: 95vh;
+  }
+
+  .modal-header {
+    padding: 15px 20px;
+  }
+
+  .modal-header h3 {
+    font-size: 16px;
+  }
+
+  .modal-close {
+    font-size: 28px;
+    padding: 4px 8px;
+  }
+
+  .modal-body {
+    padding: 15px;
+    gap: 12px;
+  }
+
+  .preview-envelope {
+    padding: 12px;
+    font-size: 12px;
+    gap: 6px;
+  }
+
+  .envelope-label {
+    width: 50px;
+  }
+
+  .preview-rendered-body {
+    padding: 15px;
+    min-height: 180px;
+    max-height: 260px;
+    font-size: 13px;
+  }
+
+  .modal-footer {
+    padding: 12px 20px;
+    flex-direction: column;
+    gap: 10px;
+    align-items: center;
+  }
+
+  .preview-controls {
+    width: 100%;
+    justify-content: space-between;
+  }
+
+  .preview-controls button {
+    flex: 1;
+    padding: 8px 12px;
+  }
+
+  .preview-index-label {
+    font-size: 12px;
+    text-align: center;
+  }
+  
+  .file-info-badge button {
+    font-size: 18px !important;
+    padding: 6px 12px !important;
+  }
+}
+
+@media (max-width: 480px) {
+  .toast-container {
+    left: 10px !important;
+    right: 10px !important;
+    bottom: 10px !important;
+  }
+
+  .toast {
+    min-width: 0 !important;
+    width: 100% !important;
+    padding: 10px 16px !important;
+    font-size: 12px;
+  }
+
+  .progress-stats {
+    flex-direction: column;
+    gap: 8px;
+    align-items: flex-start;
+  }
+
+  .cancel-send-btn {
+    align-self: stretch;
+    text-align: center;
+    padding: 8px 12px !important;
+  }
+}

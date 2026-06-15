@@ -5,10 +5,27 @@ const API_BASE_URL = window.location.hostname === "localhost" || window.location
 document.addEventListener("DOMContentLoaded", () => {
   // Auth Protection Guard
   async function checkAuth() {
+    const urlParams = new URLSearchParams(window.location.search);
+    const tokenFromUrl = urlParams.get("token");
+    if (tokenFromUrl) {
+      localStorage.setItem("auth_token", tokenFromUrl);
+      window.history.replaceState({}, document.title, window.location.pathname);
+    }
+
+    const token = localStorage.getItem("auth_token");
+    const headers = {};
+    if (token) {
+      headers["Authorization"] = `Bearer ${token}`;
+    }
+
     try {
-      const response = await fetch(`${API_BASE_URL}/user`, { credentials: "include" });
+      const response = await fetch(`${API_BASE_URL}/user`, { 
+        headers,
+        credentials: "include" 
+      });
       const data = await response.json();
       if (!data.loggedIn) {
+        localStorage.removeItem("auth_token");
         window.location.href = "index.html";
       }
     } catch (error) {
@@ -57,8 +74,15 @@ document.addEventListener("DOMContentLoaded", () => {
           formData.append("attachment", attachment);
         }
 
+        const token = localStorage.getItem("auth_token");
+        const headers = {};
+        if (token) {
+          headers["Authorization"] = `Bearer ${token}`;
+        }
+
         const response = await fetch(`${API_BASE_URL}/send-emails`, {
           method: "POST",
+          headers: headers,
           credentials: "include",
           body: formData
         });
@@ -92,15 +116,25 @@ document.addEventListener("DOMContentLoaded", () => {
   if (logoutBtn) {
     logoutBtn.addEventListener("click", async () => {
       try {
-        const response = await fetch(`${API_BASE_URL}/logout`, { credentials: "include" });
+        const token = localStorage.getItem("auth_token");
+        const headers = {};
+        if (token) {
+          headers["Authorization"] = `Bearer ${token}`;
+        }
+        const response = await fetch(`${API_BASE_URL}/logout`, { 
+          headers: headers,
+          credentials: "include" 
+        });
         const data = await response.json();
         if (data.success) {
+          localStorage.removeItem("auth_token");
           window.location.href = "index.html";
         } else {
           alert("Logout failed");
         }
       } catch (error) {
         console.error("Logout error:", error);
+        localStorage.removeItem("auth_token");
         window.location.href = "index.html";
       }
     });

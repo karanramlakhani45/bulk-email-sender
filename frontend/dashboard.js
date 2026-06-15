@@ -13,10 +13,36 @@ let cancelSendingRequested = false;
 document.addEventListener("DOMContentLoaded", () => {
   // 1. Auth protection & user details
   async function checkAuth() {
+    // Check URL parameters for OAuth session token
+    const urlParams = new URLSearchParams(window.location.search);
+    const tokenFromUrl = urlParams.get("token");
+    if (tokenFromUrl) {
+      localStorage.setItem("auth_token", tokenFromUrl);
+      // Clean up parameters so token is not exposed in history/address bar
+      window.history.replaceState({}, document.title, window.location.pathname);
+    }
+
+    const token = localStorage.getItem("auth_token");
+    const headers = {};
+    if (token) {
+      headers["Authorization"] = `Bearer ${token}`;
+    }
+
     try {
-      const response = await fetch(`${API_BASE_URL}/user`, { credentials: "include" });
+      // 10-second timeout for slow networks
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 10000);
+
+      const response = await fetch(`${API_BASE_URL}/user`, { 
+        headers,
+        credentials: "include",
+        signal: controller.signal
+      });
+      clearTimeout(timeoutId);
+
       const data = await response.json();
       if (!data.loggedIn) {
+        localStorage.removeItem("auth_token");
         window.location.href = "index.html";
       } else {
         // Populate user info badge
@@ -31,7 +57,35 @@ document.addEventListener("DOMContentLoaded", () => {
       }
     } catch (error) {
       console.error("Auth verification failed:", error);
-      window.location.href = "index.html";
+      showToast("Authentication connection error. Retrying session verification...", "error");
+      
+      // Attempt retry once on mobile slow network
+      setTimeout(async () => {
+        try {
+          const response = await fetch(`${API_BASE_URL}/user`, { 
+            headers,
+            credentials: "include" 
+          });
+          const data = await response.json();
+          if (!data.loggedIn) {
+            localStorage.removeItem("auth_token");
+            window.location.href = "index.html";
+          } else {
+            showToast("Session recovered successfully.", "success");
+            const userEmailSpan = document.getElementById("userEmail");
+            const userAvatarImg = document.getElementById("userAvatar");
+            if (userEmailSpan) {
+              userEmailSpan.textContent = data.user.emails?.[0]?.value || data.user.displayName || "Gmail User";
+            }
+            if (userAvatarImg && data.user.photos?.[0]?.value) {
+              userAvatarImg.src = data.user.photos[0].value;
+            }
+          }
+        } catch (retryErr) {
+          localStorage.removeItem("auth_token");
+          window.location.href = "index.html";
+        }
+      }, 3000);
     }
   }
 
@@ -560,8 +614,15 @@ document.addEventListener("DOMContentLoaded", () => {
           formData.append("attachment", attachmentFile);
         }
 
+        const token = localStorage.getItem("auth_token");
+        const headers = {};
+        if (token) {
+          headers["Authorization"] = `Bearer ${token}`;
+        }
+
         const response = await fetch(`${API_BASE_URL}/send-emails`, {
           method: "POST",
+          headers: headers,
           credentials: "include",
           body: formData
         });
@@ -620,15 +681,25 @@ document.addEventListener("DOMContentLoaded", () => {
   if (logoutBtn) {
     logoutBtn.addEventListener("click", async () => {
       try {
-        const response = await fetch(`${API_BASE_URL}/logout`, { credentials: "include" });
+        const token = localStorage.getItem("auth_token");
+        const headers = {};
+        if (token) {
+          headers["Authorization"] = `Bearer ${token}`;
+        }
+        const response = await fetch(`${API_BASE_URL}/logout`, { 
+          headers: headers,
+          credentials: "include" 
+        });
         const data = await response.json();
         if (data.success) {
+          localStorage.removeItem("auth_token");
           window.location.href = "index.html";
         } else {
           showToast("Logout failed.", "error");
         }
       } catch (error) {
         console.error("Logout error:", error);
+        localStorage.removeItem("auth_token");
         window.location.href = "index.html";
       }
     });
