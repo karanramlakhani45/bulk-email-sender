@@ -1120,3 +1120,26 @@ button.btn-logout:hover {
     padding: 8px 12px !important;
   }
 }
+
+/* Navigation Links */
+.nav-links {
+  display: flex;
+  gap: 20px;
+  margin-top: 10px;
+}
+.nav-link {
+  color: rgba(255, 255, 255, 0.6);
+  text-decoration: none;
+  font-size: 13px;
+  font-weight: 500;
+  padding-bottom: 4px;
+  transition: var(--transition-smooth);
+  border-bottom: 2px solid transparent;
+}
+.nav-link:hover {
+  color: #ffffff;
+}
+.nav-link.active {
+  color: #ffffff;
+  border-bottom: 2px solid #38ef7d;
+}

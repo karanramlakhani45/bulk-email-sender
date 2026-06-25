@@ -24,13 +24,19 @@
   </div>
 
   <script>
+    if (window.location.hostname === "127.0.0.1") {
+      window.location.hostname = "localhost";
+    }
+
     const API_BASE_URL = window.location.hostname === "localhost" || window.location.hostname === "127.0.0.1"
-      ? "http://localhost:5000"
+      ? `${window.location.protocol}//${window.location.hostname}:5000`
       : "https://bulk-email-sender-uaig.onrender.com";
 
     function login(){
       const currentOrigin = window.location.origin;
-      const redirectUri = `${currentOrigin}/dashboard.html`;
+      const currentPath = window.location.pathname;
+      const pathDirectory = currentPath.substring(0, currentPath.lastIndexOf('/'));
+      const redirectUri = `${currentOrigin}${pathDirectory}/dashboard.html`;
       window.location.href = `${API_BASE_URL}/auth/google?redirect_uri=${encodeURIComponent(redirectUri)}`;
     }
   </script>

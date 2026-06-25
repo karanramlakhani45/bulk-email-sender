@@ -8,6 +8,8 @@ const session = require("express-session");
 const passport = require("passport");
 const GoogleStrategy = require("passport-google-oauth20").Strategy;
 const crypto = require("crypto");
+const path = require("path");
+const db = require("./db");
 require("dotenv").config();
 
 const app = express();
@@ -72,6 +74,49 @@ function getUserFromRequest(req) {
   return null;
 }
 
+function getBackendOrigin(req) {
+  if (process.env.PUBLIC_APP_URL) {
+    return process.env.PUBLIC_APP_URL;
+  }
+  
+  const isProd = process.env.NODE_ENV === "production";
+  
+  // Fallback to request host only in development
+  if (!isProd && req) {
+    return `${req.protocol}://${req.get("host")}`;
+  }
+  
+  // If in production, fallback to request host only if not localhost/127.0.0.1
+  if (isProd && req) {
+    const host = req.get("host");
+    if (!host.includes("localhost") && !host.includes("127.0.0.1")) {
+      return `${req.protocol}://${host}`;
+    }
+  }
+  
+  if (process.env.CALLBACK_URL) {
+    try {
+      const origin = new URL(process.env.CALLBACK_URL).origin;
+      const isLocal = origin.includes("localhost") || origin.includes("127.0.0.1");
+      if (!isProd || !isLocal) {
+        return origin;
+      }
+    } catch (e) {}
+  }
+  
+  return "http://localhost:5000";
+}
+
+function rewriteLinks(html, emailId, backendUrl) {
+  if (!html) return "";
+  return html.replace(/href="([^"]*)"/gi, (match, url) => {
+    if (url.startsWith("http://") || url.startsWith("https://")) {
+      return `href="${backendUrl}/track/click/${emailId}?url=${encodeURIComponent(url)}"`;
+    }
+    return match;
+  });
+}
+
 const allowedOrigins = [
   "https://bulk-email-sender-ashy.vercel.app",
   "http://localhost:5000",
@@ -97,14 +142,16 @@ app.use(cors({
 }));
 
 app.use(express.json());
+app.use(express.static(path.join(__dirname, "../frontend")));
 
+const isProd = process.env.NODE_ENV === "production";
 app.use(session({
   secret: process.env.SESSION_SECRET || "fallback-session-secret",
   resave: false,
   saveUninitialized: false,
   cookie: {
-    secure: true,
-    sameSite: "none"
+    secure: isProd,
+    sameSite: isProd ? "none" : "lax"
   }
 }));
 
@@ -119,6 +166,8 @@ passport.deserializeUser((user, done) => {
   done(null, user);
 });
 
+console.log("CLIENT_ID:", process.env.CLIENT_ID);
+console.log("CALLBACK_URL:", process.env.CALLBACK_URL);
 passport.use(
   new GoogleStrategy(
     {
@@ -212,6 +261,77 @@ app.get("/logout", (req, res, next) => {
   });
 });
 
+// Open tracking pixel endpoint
+app.get("/track/open/:emailId", async (req, res) => {
+  const { emailId } = req.params;
+  try {
+    await db.markOpened(emailId);
+  } catch (err) {
+    console.error("Error marking email opened:", err);
+  }
+
+  const pixel = Buffer.from(
+    "R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7",
+    "base64"
+  );
+  res.writeHead(200, {
+    "Content-Type": "image/gif",
+    "Content-Length": pixel.length,
+    "Cache-Control": "no-cache, no-store, must-revalidate",
+    "Pragma": "no-cache",
+    "Expires": "0"
+  });
+  res.end(pixel);
+});
+
+// Click tracking redirect endpoint
+app.get("/track/click/:emailId", async (req, res) => {
+  const { emailId } = req.params;
+  const { url } = req.query;
+  
+  if (!url) {
+    return res.status(400).send("Missing target URL");
+  }
+
+  try {
+    await db.markClicked(emailId);
+  } catch (err) {
+    console.error("Error marking link clicked:", err);
+  }
+
+  res.redirect(url);
+});
+
+// History and Stats APIs
+app.get("/api/history", async (req, res) => {
+  const user = getUserFromRequest(req);
+  if (!user) {
+    return res.status(401).json({ success: false, error: "Unauthorized" });
+  }
+
+  const { search, status } = req.query;
+  try {
+    const history = await db.getEmails(search, status);
+    res.json({ success: true, history });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+app.get("/api/stats", async (req, res) => {
+  const user = getUserFromRequest(req);
+  if (!user) {
+    return res.status(401).json({ success: false, error: "Unauthorized" });
+  }
+
+  try {
+    const stats = await db.getStats();
+    res.json(stats);
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
 const upload = multer({ dest: "uploads/" });
 
 app.post(
@@ -237,11 +357,20 @@ app.post(
 
       // Send emails in parallel using Gmail HTTP API
       const emailPromises = emails.map(async (email) => {
+        const emailId = crypto.randomBytes(16).toString("hex");
+        const backendOrigin = getBackendOrigin(req);
+        
+        // Rewrite links for click tracking
+        let trackedMessage = rewriteLinks(message, emailId, backendOrigin);
+        
+        // Append open tracking pixel
+        trackedMessage += `<img src="${backendOrigin}/track/open/${emailId}" width="1" height="1" style="display:none;" />`;
+
         const mailOptions = {
           from: user.emails[0].value,
           to: email,
           subject,
-          html: message
+          html: trackedMessage
         };
 
         if (req.file) {
@@ -285,9 +414,29 @@ app.post(
           }
 
           sent.push(email);
+
+          // Save sent log in SQLite DB
+          await db.saveEmail({
+            id: emailId,
+            recipient_email: email,
+            subject: subject,
+            status: "Sent",
+            sent_at: Date.now(),
+            error_message: null
+          });
         } catch (err) {
           console.error(`Failed sending to ${email}:`, err);
           failed.push({ email, error: err.message });
+
+          // Save failed log in SQLite DB
+          await db.saveEmail({
+            id: emailId,
+            recipient_email: email,
+            subject: subject,
+            status: "Failed",
+            sent_at: Date.now(),
+            error_message: err.message
+          });
         }
       });
 
