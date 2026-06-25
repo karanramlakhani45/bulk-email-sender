@@ -93,40 +93,56 @@ module.exports = {
     return this.markClicked(id);
   },
 
-  getEmails(search = "", filterStatus = "") {
+  getEmails(search = "", filterStatus = "", page = null, limit = null) {
     return new Promise((resolve, reject) => {
-      let query = "SELECT * FROM emails WHERE 1=1";
+      let baseQuery = "FROM emails WHERE 1=1";
       const params = [];
       
       if (search) {
-        query += " AND (recipient_email LIKE ? OR subject LIKE ?)";
+        baseQuery += " AND (recipient_email LIKE ? OR subject LIKE ?)";
         params.push(`%${search}%`, `%${search}%`);
       }
       
       if (filterStatus) {
         if (filterStatus === "Opened") {
-          query += " AND opened_at IS NOT NULL AND (is_bot_open = 0 OR is_bot_open IS NULL)";
+          baseQuery += " AND opened_at IS NOT NULL AND (is_bot_open = 0 OR is_bot_open IS NULL)";
         } else if (filterStatus === "OpenedBot") {
-          query += " AND opened_at IS NOT NULL AND is_bot_open = 1";
+          baseQuery += " AND opened_at IS NOT NULL AND is_bot_open = 1";
         } else if (filterStatus === "Clicked") {
-          query += " AND clicked_at IS NOT NULL";
+          baseQuery += " AND clicked_at IS NOT NULL";
         } else {
-          query += " AND status = ?";
+          baseQuery += " AND status = ?";
           params.push(filterStatus);
         }
       }
-      
-      query += " ORDER BY sent_at DESC";
-      
-      db.all(query, params, (err, rows) => {
-        if (err) reject(err);
-        else resolve(rows);
+
+      // 1. Get total records count for these query parameters
+      const countQuery = `SELECT COUNT(*) as count ${baseQuery}`;
+      db.get(countQuery, params, (err, countRow) => {
+        if (err) return reject(err);
+        
+        const total = countRow ? countRow.count : 0;
+        
+        // 2. Query paginated records
+        let selectQuery = `SELECT * ${baseQuery} ORDER BY sent_at DESC`;
+        const selectParams = [...params];
+        
+        if (page !== null && limit !== null) {
+          selectQuery += " LIMIT ? OFFSET ?";
+          const offset = (page - 1) * limit;
+          selectParams.push(limit, offset);
+        }
+        
+        db.all(selectQuery, selectParams, (err, rows) => {
+          if (err) reject(err);
+          else resolve({ history: rows, total });
+        });
       });
     });
   },
 
-  getHistory(search = "", filterStatus = "") {
-    return this.getEmails(search, filterStatus);
+  getHistory(search = "", filterStatus = "", page = null, limit = null) {
+    return this.getEmails(search, filterStatus, page, limit);
   },
 
   getStats() {

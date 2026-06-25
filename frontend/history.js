@@ -7,6 +7,9 @@ const API_BASE_URL = window.location.hostname === "localhost" || window.location
   : "https://bulk-email-sender-uaig.onrender.com";
 
 document.addEventListener("DOMContentLoaded", () => {
+  let currentPage = 1;
+  const recordsPerPage = 50;
+
   // 1. Auth protection & user details
   async function checkAuth() {
     const token = localStorage.getItem("auth_token");
@@ -110,6 +113,8 @@ document.addEventListener("DOMContentLoaded", () => {
       const queryParams = new URLSearchParams();
       if (search) queryParams.append("search", search);
       if (filterStatus) queryParams.append("status", filterStatus);
+      queryParams.append("page", currentPage);
+      queryParams.append("limit", recordsPerPage);
 
       const response = await fetch(`${API_BASE_URL}/api/history?${queryParams.toString()}`, { 
         headers, 
@@ -117,10 +122,23 @@ document.addEventListener("DOMContentLoaded", () => {
       });
       const data = await response.json();
 
+      // Show/hide persistent warning banner based on backend persistent flag
+      const warningBanner = document.getElementById("storageWarning");
+      if (warningBanner) {
+        warningBanner.style.display = (data.persistent === false) ? "flex" : "none";
+      }
+
       tbody.innerHTML = "";
 
       if (!data.history || data.history.length === 0) {
         emptyState.style.display = "block";
+        
+        // Reset pagination UI
+        document.getElementById("paginationTotal").textContent = "0";
+        document.getElementById("paginationRange").textContent = "0-0";
+        document.getElementById("currentPageNum").textContent = "Page 1";
+        document.getElementById("prevPageBtn").disabled = true;
+        document.getElementById("nextPageBtn").disabled = true;
         return;
       }
 
@@ -165,6 +183,22 @@ document.addEventListener("DOMContentLoaded", () => {
         `;
         tbody.appendChild(tr);
       });
+
+      // Update pagination UI elements
+      const total = data.total || 0;
+      document.getElementById("paginationTotal").textContent = total;
+
+      const startRecord = total > 0 ? (currentPage - 1) * recordsPerPage + 1 : 0;
+      const endRecord = Math.min(currentPage * recordsPerPage, total);
+      document.getElementById("paginationRange").textContent = `${startRecord}-${endRecord}`;
+      document.getElementById("currentPageNum").textContent = `Page ${currentPage}`;
+
+      const prevBtn = document.getElementById("prevPageBtn");
+      const nextBtn = document.getElementById("nextPageBtn");
+
+      prevBtn.disabled = currentPage === 1;
+      nextBtn.disabled = endRecord >= total;
+
     } catch (error) {
       console.error("Failed to fetch logs:", error);
       showToast("Error loading email history.", "error");
@@ -187,11 +221,26 @@ document.addEventListener("DOMContentLoaded", () => {
   document.getElementById("searchInput").addEventListener("input", () => {
     clearTimeout(searchTimeout);
     searchTimeout = setTimeout(() => {
+      currentPage = 1; // Reset to page 1 on fresh search
       fetchLogs();
     }, 400);
   });
 
   document.getElementById("statusFilter").addEventListener("change", () => {
+    currentPage = 1; // Reset to page 1 on fresh filter
+    fetchLogs();
+  });
+
+  // Pagination buttons listeners
+  document.getElementById("prevPageBtn").addEventListener("click", () => {
+    if (currentPage > 1) {
+      currentPage--;
+      fetchLogs();
+    }
+  });
+
+  document.getElementById("nextPageBtn").addEventListener("click", () => {
+    currentPage++;
     fetchLogs();
   });
 

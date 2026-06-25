@@ -411,10 +411,21 @@ app.get("/api/history", async (req, res) => {
   }
 
   const { search, status } = req.query;
-  console.log(`[API Log] History request received. Search: "${search || ""}", Status: "${status || ""}"`);
+  const page = req.query.page ? parseInt(req.query.page, 10) : null;
+  const limit = req.query.limit ? parseInt(req.query.limit, 10) : null;
+
+  console.log(`[API Log] History request received. Search: "${search || ""}", Status: "${status || ""}", Page: ${page}, Limit: ${limit}`);
   try {
-    const history = await db.getEmails(search, status);
-    res.json({ success: true, history });
+    const result = await db.getEmails(search, status, page, limit);
+    const isPersistent = !!process.env.PERSISTENT_STORAGE;
+    res.json({ 
+      success: true, 
+      history: result.history, 
+      total: result.total,
+      persistent: isPersistent,
+      page,
+      limit
+    });
   } catch (err) {
     console.error(`[API Log] Error fetching email history:`, err);
     res.status(500).json({ success: false, error: err.message });

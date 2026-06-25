@@ -158,6 +158,16 @@
       </div>
     </header>
 
+    <!-- Ephemeral Storage Warning Banner -->
+    <div id="storageWarning" class="glass-card" style="display: none; background: rgba(255, 75, 92, 0.1); border: 1px solid rgba(255, 75, 92, 0.3); padding: 15px; margin-bottom: 20px; align-items: center; gap: 10px; flex-direction: row; box-shadow: var(--glass-shadow); backdrop-filter: blur(10px);">
+      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#ffb3b9" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="flex-shrink: 0;">
+        <path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3Z"/>
+        <line x1="12" y1="9" x2="12" y2="13"/>
+        <line x1="12" y1="17" x2="12.01" y2="17"/>
+      </svg>
+      <span style="font-size: 13px; color: #ffb3b9; font-weight: 500;">History may be lost after redeploy because SQLite is stored on Render ephemeral storage.</span>
+    </div>
+
     <!-- Statistics Cards Grid -->
     <div class="stats-grid">
       <div class="glass-card stat-card">
@@ -230,6 +240,18 @@
         </table>
         <div id="emptyState" class="empty-state" style="display: block;">
           No email history available
+        </div>
+      </div>
+
+      <!-- Pagination Controls -->
+      <div class="pagination-container" style="display: flex; justify-content: space-between; align-items: center; margin-top: 20px; padding: 0 5px; flex-wrap: wrap; gap: 15px;">
+        <div class="pagination-info" style="font-size: 13px; color: rgba(255, 255, 255, 0.6);">
+          Showing <span id="paginationRange" style="font-weight: 600; color: #fff;">0-0</span> of <span id="paginationTotal" style="font-weight: 600; color: #fff;">0</span> records
+        </div>
+        <div class="pagination-controls" style="display: flex; gap: 12px; align-items: center;">
+          <button id="prevPageBtn" class="btn btn-glass" style="width: auto; padding: 6px 16px; font-size: 12px; margin: 0;">Previous</button>
+          <span id="currentPageNum" style="font-size: 13px; font-weight: 500; color: #fff; min-width: 60px; text-align: center;">Page 1</span>
+          <button id="nextPageBtn" class="btn btn-glass" style="width: auto; padding: 6px 16px; font-size: 12px; margin: 0;">Next</button>
         </div>
       </div>
     </div>
