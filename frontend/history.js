@@ -142,8 +142,8 @@ document.addEventListener("DOMContentLoaded", () => {
             statusText = "Clicked";
             tagClass = "clicked";
           } else if (row.opened_at) {
-            statusText = "Opened";
-            tagClass = "opened";
+            statusText = row.is_bot_open ? "Opened (Scanner/Bot)" : "Opened (Human)";
+            tagClass = row.is_bot_open ? "opened-bot" : "opened";
           }
         }
 

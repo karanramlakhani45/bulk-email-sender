@@ -71,6 +71,10 @@
       background: rgba(242, 153, 74, 0.15);
       color: #ffd085;
     }
+    .status-tag.opened-bot {
+      background: rgba(100, 110, 120, 0.2);
+      color: #b0c4de;
+    }
     .status-tag.clicked {
       background: rgba(142, 45, 226, 0.15);
       color: #d1b3ff;
@@ -199,7 +203,8 @@
             <option value="">All Statuses</option>
             <option value="Sent">Sent Successfully</option>
             <option value="Failed">Failed</option>
-            <option value="Opened">Opened</option>
+            <option value="Opened">Opened (Human)</option>
+            <option value="OpenedBot">Opened (Scanner/Bot)</option>
             <option value="Clicked">Clicked</option>
           </select>
         </div>

@@ -15,9 +15,17 @@ db.serialize(() => {
       sent_at INTEGER NOT NULL,
       opened_at INTEGER,
       clicked_at INTEGER,
-      error_message TEXT
+      error_message TEXT,
+      is_bot_open INTEGER DEFAULT 0,
+      open_user_agent TEXT,
+      open_ip TEXT
     )
   `);
+
+  // migrations for existing databases
+  db.run("ALTER TABLE emails ADD COLUMN is_bot_open INTEGER DEFAULT 0", () => {});
+  db.run("ALTER TABLE emails ADD COLUMN open_user_agent TEXT", () => {});
+  db.run("ALTER TABLE emails ADD COLUMN open_ip TEXT", () => {});
 });
 
 module.exports = {
@@ -47,12 +55,14 @@ module.exports = {
     });
   },
   
-  markOpened(id) {
+  markOpened(id, isBotOpen = 0, ip = null, userAgent = null) {
     return new Promise((resolve, reject) => {
       const now = Date.now();
       db.run(
-        `UPDATE emails SET opened_at = ? WHERE id = ? AND opened_at IS NULL`,
-        [now, id],
+        `UPDATE emails 
+         SET opened_at = ?, is_bot_open = ?, open_ip = ?, open_user_agent = ?
+         WHERE id = ? AND (opened_at IS NULL OR (is_bot_open = 1 AND ? = 0))`,
+        [now, isBotOpen, ip, userAgent, id, isBotOpen],
         function (err) {
           if (err) reject(err);
           else resolve(this.changes);
@@ -61,8 +71,8 @@ module.exports = {
     });
   },
 
-  markEmailOpened(id) {
-    return this.markOpened(id);
+  markEmailOpened(id, isBotOpen = 0, ip = null, userAgent = null) {
+    return this.markOpened(id, isBotOpen, ip, userAgent);
   },
 
   markClicked(id) {
@@ -95,7 +105,9 @@ module.exports = {
       
       if (filterStatus) {
         if (filterStatus === "Opened") {
-          query += " AND opened_at IS NOT NULL";
+          query += " AND opened_at IS NOT NULL AND (is_bot_open = 0 OR is_bot_open IS NULL)";
+        } else if (filterStatus === "OpenedBot") {
+          query += " AND opened_at IS NOT NULL AND is_bot_open = 1";
         } else if (filterStatus === "Clicked") {
           query += " AND clicked_at IS NOT NULL";
         } else {
@@ -124,7 +136,7 @@ module.exports = {
           COUNT(*) as total,
           SUM(CASE WHEN status = 'Sent' THEN 1 ELSE 0 END) as sent,
           SUM(CASE WHEN status = 'Failed' THEN 1 ELSE 0 END) as failed,
-          SUM(CASE WHEN opened_at IS NOT NULL THEN 1 ELSE 0 END) as opened,
+          SUM(CASE WHEN opened_at IS NOT NULL AND (is_bot_open = 0 OR is_bot_open IS NULL) THEN 1 ELSE 0 END) as opened,
           SUM(CASE WHEN clicked_at IS NOT NULL THEN 1 ELSE 0 END) as clicked
          FROM emails`,
         (err, row) => {

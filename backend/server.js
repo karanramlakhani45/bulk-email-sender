@@ -282,6 +282,8 @@ app.get("/track/open/:emailId", async (req, res) => {
   const { emailId } = req.params;
   const ip = req.ip || req.headers["x-forwarded-for"] || req.socket.remoteAddress;
   const userAgent = req.headers["user-agent"] || "unknown";
+  const referer = req.headers["referer"] || "none";
+  const timestamp = new Date().toISOString();
 
   console.log(`[Tracking Log] Open request received for email ID: ${emailId} | IP: ${ip} | User-Agent: ${userAgent}`);
 
@@ -289,16 +291,76 @@ app.get("/track/open/:emailId", async (req, res) => {
     const email = await db.getEmailById(emailId);
     if (!email) {
       console.warn(`[Tracking Log] Email not found: ${emailId}`);
+      console.log(`\n[Tracking Log]
+Email ID: ${emailId}
+User-Agent: ${userAgent}
+IP: ${ip}
+Referer: ${referer}
+Timestamp: ${timestamp}
+Detected: Email Not Found in DB
+Bot Open: YES\n`);
     } else {
       console.log(`[Tracking Log] Email found: ${emailId}`);
-      const isGoogleProxy = /googleimageproxy/i.test(userAgent);
-      const elapsedSeconds = (Date.now() - email.sent_at) / 1000;
+      
+      let isBotOpen = 0;
+      let detectionLabel = "Human Browser";
+      const uaLower = userAgent.toLowerCase();
 
-      if (isGoogleProxy && elapsedSeconds <= 10) {
-        console.log(`[Tracking Log] GoogleImageProxy prefetch detected for email ID: ${emailId} after ${elapsedSeconds.toFixed(2)}s. Skipping database update.`);
+      // Bot signatures detection
+      if (uaLower.includes("google-publisher-anonymizer")) {
+        isBotOpen = 1;
+        detectionLabel = "Google Security Scanner";
+      } else if (uaLower.includes("google-apps-script")) {
+        isBotOpen = 1;
+        detectionLabel = "Google Apps Script";
+      } else if (uaLower.includes("googlebot")) {
+        isBotOpen = 1;
+        detectionLabel = "Googlebot Crawler";
+      } else if (uaLower.includes("safelinks")) {
+        isBotOpen = 1;
+        detectionLabel = "Outlook Safe Links";
+      } else if (uaLower.includes("msip") || uaLower.includes("microsoft defender") || uaLower.includes("defender")) {
+        isBotOpen = 1;
+        detectionLabel = "Microsoft Defender / Office 365 Scanner";
+      } else if (uaLower.includes("barracuda")) {
+        isBotOpen = 1;
+        detectionLabel = "Barracuda Sentinel";
+      } else if (uaLower.includes("mimecast")) {
+        isBotOpen = 1;
+        detectionLabel = "Mimecast Email Security";
+      } else if (uaLower.includes("proofpoint")) {
+        isBotOpen = 1;
+        detectionLabel = "Proofpoint Protection";
+      } else if (uaLower.includes("googleimageproxy")) {
+        // Gmail images are always proxied; differentiate prefetch vs real open by timing
+        const elapsedSeconds = (Date.now() - email.sent_at) / 1000;
+        if (elapsedSeconds <= 10) {
+          isBotOpen = 1;
+          detectionLabel = `GoogleImageProxy Prefetch (elapsed: ${elapsedSeconds.toFixed(2)}s)`;
+        } else {
+          isBotOpen = 0;
+          detectionLabel = `Gmail Client via GoogleImageProxy (elapsed: ${elapsedSeconds.toFixed(2)}s)`;
+        }
+      } else if (uaLower.includes("crawler") || uaLower.includes("spider") || uaLower.includes("bot") || uaLower.includes("scanner")) {
+        isBotOpen = 1;
+        detectionLabel = "Generic Bot/Crawler/Scanner";
+      }
+
+      const changes = await db.markEmailOpened(emailId, isBotOpen, ip, userAgent);
+
+      console.log(`\n[Tracking Log]
+Email ID: ${emailId}
+User-Agent: ${userAgent}
+IP: ${ip}
+Referer: ${referer}
+Timestamp: ${timestamp}
+Detected: ${detectionLabel}
+Bot Open: ${isBotOpen ? "YES" : "NO"}\n`);
+
+      if (changes > 0) {
+        console.log(`[Tracking Log] Open recorded successfully for email ID: ${emailId}. Changes: ${changes}`);
       } else {
-        const changes = await db.markOpened(emailId);
-        console.log(`[Tracking Log] Open recorded successfully for email ID: ${emailId}. Changes: ${changes} | Elapsed: ${elapsedSeconds.toFixed(2)}s`);
+        console.log(`[Tracking Log] Open tracking request processed. No DB changes (already recorded or skipped).`);
       }
     }
   } catch (err) {
