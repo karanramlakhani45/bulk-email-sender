@@ -16,6 +16,16 @@ const app = express();
 
 app.set("trust proxy", 1);
 
+// Custom Request Logging Middleware
+app.use((req, res, next) => {
+  const start = Date.now();
+  res.on("finish", () => {
+    const duration = Date.now() - start;
+    console.log(`[API Log] ${req.method} ${req.originalUrl} - Status: ${res.statusCode} - Time: ${duration}ms`);
+  });
+  next();
+});
+
 // Token Encryption/Decryption System using crypto
 const SECRET = process.env.JWT_SECRET || process.env.SESSION_SECRET || "fallback-secret-for-jwt-signing-and-encrypting-12345678";
 const ENCRYPTION_KEY = crypto.createHash("sha256").update(SECRET).digest();
@@ -126,13 +136,19 @@ const allowedOrigins = [
   "http://localhost:8080"
 ];
 
+if (process.env.FRONTEND_URL) {
+  allowedOrigins.push(process.env.FRONTEND_URL);
+}
+
 app.use(cors({
   origin: function (origin, callback) {
     if (!origin) return callback(null, true);
     const isLocalhost = origin.startsWith("http://localhost:") || origin.startsWith("http://127.0.0.1:");
-    if (allowedOrigins.indexOf(origin) !== -1 || isLocalhost) {
+    const isVercel = origin.endsWith(".vercel.app");
+    if (allowedOrigins.indexOf(origin) !== -1 || isLocalhost || isVercel) {
       callback(null, true);
     } else {
+      console.warn(`[CORS Blocked] Origin: ${origin}`);
       callback(new Error("Not allowed by CORS"));
     }
   },
@@ -264,10 +280,28 @@ app.get("/logout", (req, res, next) => {
 // Open tracking pixel endpoint
 app.get("/track/open/:emailId", async (req, res) => {
   const { emailId } = req.params;
+  const ip = req.ip || req.headers["x-forwarded-for"] || req.socket.remoteAddress;
+  const userAgent = req.headers["user-agent"] || "unknown";
+
+  console.log(`[Tracking Log] Open tracking request received for email ID: ${emailId} | IP: ${ip} | User-Agent: ${userAgent}`);
+
   try {
-    await db.markOpened(emailId);
+    const email = await db.getEmailById(emailId);
+    if (!email) {
+      console.warn(`[Tracking Log] Email ID not found in database: ${emailId}`);
+    } else {
+      const isGoogleProxy = /googleimageproxy/i.test(userAgent);
+      const elapsedSeconds = (Date.now() - email.sent_at) / 1000;
+
+      if (isGoogleProxy && elapsedSeconds <= 10) {
+        console.log(`[Tracking Log] GoogleImageProxy prefetch detected for email ID: ${emailId} after ${elapsedSeconds.toFixed(2)}s. Skipping database update.`);
+      } else {
+        const changes = await db.markOpened(emailId);
+        console.log(`[Tracking Log] Open marked for email ID: ${emailId}. Changes: ${changes} | Elapsed: ${elapsedSeconds.toFixed(2)}s`);
+      }
+    }
   } catch (err) {
-    console.error("Error marking email opened:", err);
+    console.error(`[Tracking Log] Error handling open tracking for ${emailId}:`, err);
   }
 
   const pixel = Buffer.from(
@@ -288,15 +322,18 @@ app.get("/track/open/:emailId", async (req, res) => {
 app.get("/track/click/:emailId", async (req, res) => {
   const { emailId } = req.params;
   const { url } = req.query;
+  console.log(`[Tracking Log] Click tracking request received for email ID: ${emailId}, target: ${url}`);
   
   if (!url) {
+    console.warn(`[Tracking Log] Click tracking request failed: Missing target URL`);
     return res.status(400).send("Missing target URL");
   }
 
   try {
-    await db.markClicked(emailId);
+    const changes = await db.markClicked(emailId);
+    console.log(`[Tracking Log] Click marked. Changes: ${changes}`);
   } catch (err) {
-    console.error("Error marking link clicked:", err);
+    console.error(`[Tracking Log] Error marking link clicked for ${emailId}:`, err);
   }
 
   res.redirect(url);
@@ -306,14 +343,17 @@ app.get("/track/click/:emailId", async (req, res) => {
 app.get("/api/history", async (req, res) => {
   const user = getUserFromRequest(req);
   if (!user) {
+    console.warn(`[API Log] Unauthorized history access attempt`);
     return res.status(401).json({ success: false, error: "Unauthorized" });
   }
 
   const { search, status } = req.query;
+  console.log(`[API Log] History request received. Search: "${search || ""}", Status: "${status || ""}"`);
   try {
     const history = await db.getEmails(search, status);
     res.json({ success: true, history });
   } catch (err) {
+    console.error(`[API Log] Error fetching email history:`, err);
     res.status(500).json({ success: false, error: err.message });
   }
 });
@@ -321,13 +361,16 @@ app.get("/api/history", async (req, res) => {
 app.get("/api/stats", async (req, res) => {
   const user = getUserFromRequest(req);
   if (!user) {
+    console.warn(`[API Log] Unauthorized stats access attempt`);
     return res.status(401).json({ success: false, error: "Unauthorized" });
   }
 
+  console.log(`[API Log] Stats request received`);
   try {
     const stats = await db.getStats();
     res.json(stats);
   } catch (err) {
+    console.error(`[API Log] Error fetching email stats:`, err);
     res.status(500).json({ success: false, error: err.message });
   }
 });
