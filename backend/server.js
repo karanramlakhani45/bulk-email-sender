@@ -283,13 +283,14 @@ app.get("/track/open/:emailId", async (req, res) => {
   const ip = req.ip || req.headers["x-forwarded-for"] || req.socket.remoteAddress;
   const userAgent = req.headers["user-agent"] || "unknown";
 
-  console.log(`[Tracking Log] Open tracking request received for email ID: ${emailId} | IP: ${ip} | User-Agent: ${userAgent}`);
+  console.log(`[Tracking Log] Open request received for email ID: ${emailId} | IP: ${ip} | User-Agent: ${userAgent}`);
 
   try {
     const email = await db.getEmailById(emailId);
     if (!email) {
-      console.warn(`[Tracking Log] Email ID not found in database: ${emailId}`);
+      console.warn(`[Tracking Log] Email not found: ${emailId}`);
     } else {
+      console.log(`[Tracking Log] Email found: ${emailId}`);
       const isGoogleProxy = /googleimageproxy/i.test(userAgent);
       const elapsedSeconds = (Date.now() - email.sent_at) / 1000;
 
@@ -297,7 +298,7 @@ app.get("/track/open/:emailId", async (req, res) => {
         console.log(`[Tracking Log] GoogleImageProxy prefetch detected for email ID: ${emailId} after ${elapsedSeconds.toFixed(2)}s. Skipping database update.`);
       } else {
         const changes = await db.markOpened(emailId);
-        console.log(`[Tracking Log] Open marked for email ID: ${emailId}. Changes: ${changes} | Elapsed: ${elapsedSeconds.toFixed(2)}s`);
+        console.log(`[Tracking Log] Open recorded successfully for email ID: ${emailId}. Changes: ${changes} | Elapsed: ${elapsedSeconds.toFixed(2)}s`);
       }
     }
   } catch (err) {
