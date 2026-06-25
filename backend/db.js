@@ -18,7 +18,8 @@ db.serialize(() => {
       error_message TEXT,
       is_bot_open INTEGER DEFAULT 0,
       open_user_agent TEXT,
-      open_ip TEXT
+      open_ip TEXT,
+      open_classification_reason TEXT
     )
   `);
 
@@ -26,6 +27,7 @@ db.serialize(() => {
   db.run("ALTER TABLE emails ADD COLUMN is_bot_open INTEGER DEFAULT 0", () => {});
   db.run("ALTER TABLE emails ADD COLUMN open_user_agent TEXT", () => {});
   db.run("ALTER TABLE emails ADD COLUMN open_ip TEXT", () => {});
+  db.run("ALTER TABLE emails ADD COLUMN open_classification_reason TEXT", () => {});
 });
 
 module.exports = {
@@ -55,14 +57,14 @@ module.exports = {
     });
   },
   
-  markOpened(id, isBotOpen = 0, ip = null, userAgent = null) {
+  markOpened(id, isBotOpen = 0, ip = null, userAgent = null, classificationReason = null) {
     return new Promise((resolve, reject) => {
       const now = Date.now();
       db.run(
         `UPDATE emails 
-         SET opened_at = ?, is_bot_open = ?, open_ip = ?, open_user_agent = ?
+         SET opened_at = ?, is_bot_open = ?, open_ip = ?, open_user_agent = ?, open_classification_reason = ?
          WHERE id = ? AND (opened_at IS NULL OR (is_bot_open = 1 AND ? = 0))`,
-        [now, isBotOpen, ip, userAgent, id, isBotOpen],
+        [now, isBotOpen, ip, userAgent, classificationReason, id, isBotOpen],
         function (err) {
           if (err) reject(err);
           else resolve(this.changes);
@@ -71,8 +73,8 @@ module.exports = {
     });
   },
 
-  markEmailOpened(id, isBotOpen = 0, ip = null, userAgent = null) {
-    return this.markOpened(id, isBotOpen, ip, userAgent);
+  markEmailOpened(id, isBotOpen = 0, ip = null, userAgent = null, classificationReason = null) {
+    return this.markOpened(id, isBotOpen, ip, userAgent, classificationReason);
   },
 
   markClicked(id) {
