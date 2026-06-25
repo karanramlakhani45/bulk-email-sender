@@ -2,4 +2,7 @@ node_modules/
 .env
 frontend/.env
 backend/.env
+emails.db
+*.db
+uploads/
 
