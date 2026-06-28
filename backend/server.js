@@ -278,6 +278,7 @@ app.get("/logout", (req, res, next) => {
 });
 
 // Classification helper function
+// Classification helper function
 function classifyRequest(userAgent, ip, elapsedSeconds) {
   const uaLower = (userAgent || "").toLowerCase();
   const isGoogleIP = (ip || "").startsWith("66.249.") || (ip || "").startsWith("209.85.");
@@ -305,76 +306,96 @@ function classifyRequest(userAgent, ip, elapsedSeconds) {
                     uaLower.includes("opera") || 
                     uaLower.includes("edge");
 
+  let isBotOpen = 1;
+  let reason = "";
+  let matchedRule = "";
+
   // 1. Strict timing check (Never classify as Human if within 60 seconds of delivery)
   if (elapsedSeconds <= 60) {
-    let reason = `Request received within strict 60-second anti-prefetch window (${elapsedSeconds.toFixed(2)}s)`;
-    let isBotOpen = 1;
+    reason = `Request received within strict 60-second anti-prefetch window (${elapsedSeconds.toFixed(2)}s)`;
     if (isGoogleProxyUA || isGoogleIP) {
       isBotOpen = 2; // Gmail Proxy
       reason = `Gmail Image Proxy prefetch within 60-second window (${elapsedSeconds.toFixed(2)}s)`;
+      matchedRule = "Anti-prefetch window & Google Image Proxy";
     } else if (isGoogleScanner) {
+      matchedRule = "Anti-prefetch window & Google Scanner";
       reason = "Google Security Scanner scan within 60s";
     } else if (isOutlookSafeLinks) {
+      matchedRule = "Anti-prefetch window & Outlook SafeLinks";
       reason = "Outlook SafeLinks prefetch within 60s";
     } else if (isDefender) {
+      matchedRule = "Anti-prefetch window & Microsoft Defender";
       reason = "Microsoft Defender scan within 60s";
     } else if (isBarracuda) {
+      matchedRule = "Anti-prefetch window & Barracuda";
       reason = "Barracuda scan within 60s";
     } else if (isMimecast) {
+      matchedRule = "Anti-prefetch window & Mimecast";
       reason = "Mimecast scan within 60s";
     } else if (isProofpoint) {
+      matchedRule = "Anti-prefetch window & Proofpoint";
       reason = "Proofpoint scan within 60s";
     } else if (isGenericScanner) {
+      matchedRule = "Anti-prefetch window & Generic Scanner";
       reason = "Generic crawler/bot scan within 60s";
+    } else {
+      matchedRule = "Anti-prefetch window (Generic)";
     }
-    return { isBotOpen, reason };
+  } else {
+    // 2. Delayed requests (> 60 seconds)
+    if (isGoogleProxyUA || isGoogleIP) {
+      isBotOpen = 2;
+      reason = `Gmail Image Proxy/Infrastructure routing (${isGoogleIP ? 'IP: ' + ip : 'UA: ' + userAgent})`;
+      matchedRule = "Google Image Proxy outside prefetch window";
+    } else if (isGoogleScanner) {
+      isBotOpen = 1;
+      reason = "Google Security Scanner signature matched";
+      matchedRule = "Google Security Scanner outside prefetch window";
+    } else if (isOutlookSafeLinks) {
+      isBotOpen = 1;
+      reason = "Outlook SafeLinks signature matched";
+      matchedRule = "Outlook SafeLinks outside prefetch window";
+    } else if (isDefender) {
+      isBotOpen = 1;
+      reason = "Microsoft Defender signature matched";
+      matchedRule = "Microsoft Defender outside prefetch window";
+    } else if (isBarracuda) {
+      isBotOpen = 1;
+      reason = "Barracuda signature matched";
+      matchedRule = "Barracuda outside prefetch window";
+    } else if (isMimecast) {
+      isBotOpen = 1;
+      reason = "Mimecast signature matched";
+      matchedRule = "Mimecast outside prefetch window";
+    } else if (isProofpoint) {
+      isBotOpen = 1;
+      reason = "Proofpoint signature matched";
+      matchedRule = "Proofpoint outside prefetch window";
+    } else if (isGenericScanner) {
+      isBotOpen = 1;
+      reason = "Generic crawler/bot/scanner signature matched";
+      matchedRule = "Generic crawler/bot/scanner outside prefetch window";
+    } else if (isBrowser && !isBotSignature) {
+      isBotOpen = 0;
+      reason = "Legitimate open from client browser outside prefetch window";
+      matchedRule = "Real Browser UA outside prefetch window";
+    } else {
+      isBotOpen = 1;
+      reason = `Non-browser User-Agent detected: "${userAgent}"`;
+      matchedRule = "Non-browser UA outside prefetch window";
+    }
   }
 
-  // 2. Delayed requests (> 60 seconds)
-  if (isGoogleProxyUA || isGoogleIP) {
-    return {
-      isBotOpen: 2,
-      reason: `Gmail Image Proxy/Infrastructure routing (${isGoogleIP ? 'IP: ' + ip : 'UA: ' + userAgent})`
-    };
-  }
-  if (isGoogleScanner) {
-    return { isBotOpen: 1, reason: "Google Security Scanner signature matched" };
-  }
-  if (isOutlookSafeLinks) {
-    return { isBotOpen: 1, reason: "Outlook SafeLinks signature matched" };
-  }
-  if (isDefender) {
-    return { isBotOpen: 1, reason: "Microsoft Defender signature matched" };
-  }
-  if (isBarracuda) {
-    return { isBotOpen: 1, reason: "Barracuda signature matched" };
-  }
-  if (isMimecast) {
-    return { isBotOpen: 1, reason: "Mimecast signature matched" };
-  }
-  if (isProofpoint) {
-    return { isBotOpen: 1, reason: "Proofpoint signature matched" };
-  }
-  if (isGenericScanner) {
-    return { isBotOpen: 1, reason: "Generic crawler/bot/scanner signature matched" };
-  }
+  const classification = isBotOpen === 2 ? "Gmail Proxy" : (isBotOpen === 1 ? "Bot" : "Human");
 
-  // Human status should only be written when ALL are true:
-  // - delay since sent > 60 seconds
-  // - User-Agent is a real browser
-  // - not any scanner/bot
-  if (isBrowser && !isBotSignature) {
-    return {
-      isBotOpen: 0,
-      reason: "Legitimate open from client browser outside prefetch window"
-    };
-  }
+  console.log(`\n[CLASSIFIER DECISION]
+Elapsed: ${elapsedSeconds.toFixed(2)}s
+UA: ${userAgent}
+IP: ${ip}
+Matched rule: ${matchedRule}
+Final classification: ${classification}\n`);
 
-  // Non-browser User-Agent
-  return {
-    isBotOpen: 1,
-    reason: `Non-browser User-Agent detected: "${userAgent}"`
-  };
+  return { isBotOpen, reason };
 }
 
 // Open tracking pixel endpoint
@@ -451,6 +472,9 @@ Reason: ${reason}\n`);
 app.get("/track/click/:emailId", async (req, res) => {
   const { emailId } = req.params;
   const { url } = req.query;
+  const ip = req.ip || req.headers["x-forwarded-for"] || req.socket.remoteAddress;
+  const userAgent = req.headers["user-agent"] || "unknown";
+
   console.log(`[Tracking Log] Click tracking request received for email ID: ${emailId}, target: ${url}`);
   
   if (!url) {
@@ -461,8 +485,11 @@ app.get("/track/click/:emailId", async (req, res) => {
   try {
     const changes = await db.markClicked(emailId);
     console.log(`[Tracking Log] Click marked. Changes: ${changes}`);
+    
+    const openChanges = await db.markEmailOpened(emailId, 0, ip, userAgent, "Click event verified human open");
+    console.log(`[Tracking Log] Human open verification from click. Open Changes: ${openChanges}`);
   } catch (err) {
-    console.error(`[Tracking Log] Error marking link clicked for ${emailId}:`, err);
+    console.error(`[Tracking Log] Error marking link clicked/opened for ${emailId}:`, err);
   }
 
   res.redirect(url);

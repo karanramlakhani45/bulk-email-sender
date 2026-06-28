@@ -191,7 +191,7 @@ module.exports = {
           COUNT(*) as total,
           SUM(CASE WHEN status != 'Failed' THEN 1 ELSE 0 END) as sent,
           SUM(CASE WHEN status = 'Failed' THEN 1 ELSE 0 END) as failed,
-          SUM(CASE WHEN opened_at IS NOT NULL AND (is_bot_open = 0 OR is_bot_open IS NULL) THEN 1 ELSE 0 END) as opened,
+          SUM(CASE WHEN (opened_at IS NOT NULL AND (is_bot_open = 0 OR is_bot_open IS NULL)) OR clicked_at IS NOT NULL THEN 1 ELSE 0 END) as opened,
           SUM(CASE WHEN clicked_at IS NOT NULL THEN 1 ELSE 0 END) as clicked
          FROM emails`,
         (err, row) => {
