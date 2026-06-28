@@ -206,8 +206,10 @@ passport.use(
   )
 );
 
-app.get(
-  "/auth/google",
+const authRouter = express.Router();
+
+authRouter.get(
+  "/google",
   (req, res, next) => {
     const redirectUri = req.query.redirect_uri || "https://bulk-email-sender-ashy.vercel.app/dashboard.html";
     const state = Buffer.from(JSON.stringify({ redirectUri })).toString("base64");
@@ -224,8 +226,8 @@ app.get(
   }
 );
 
-app.get(
-  "/auth/google/callback",
+authRouter.get(
+  "/google/callback",
   (req, res, next) => {
     let failureRedirect = "https://bulk-email-sender-ashy.vercel.app/index.html";
     if (req.query.state) {
@@ -264,6 +266,31 @@ app.get(
   }
 );
 
+authRouter.get("/me", (req, res) => {
+  const user = getUserFromRequest(req);
+  res.json({
+    loggedIn: !!user,
+    user: user || null
+  });
+});
+
+authRouter.post("/logout", (req, res, next) => {
+  req.logout((err) => {
+    if (err) { return next(err); }
+    req.session.destroy(() => {
+      res.clearCookie("connect.sid", {
+        secure: true,
+        sameSite: "none"
+      });
+      res.json({ success: true });
+    });
+  });
+});
+
+// Mount the OAuth router
+app.use("/auth", authRouter);
+
+// Backward compatibility aliases
 app.get("/user", (req, res) => {
   const user = getUserFromRequest(req);
   res.json({
@@ -283,6 +310,11 @@ app.get("/logout", (req, res, next) => {
       res.json({ success: true });
     });
   });
+});
+
+// Health check endpoint
+app.get("/health", (req, res) => {
+  res.json({ status: "OK", timestamp: new Date().toISOString() });
 });
 
 function classifyRequest(userAgent, ip, elapsedSeconds, hasPrefetched = false) {
