@@ -155,14 +155,26 @@ document.addEventListener("DOMContentLoaded", () => {
         // Determine precise status tag
         let statusText = row.status;
         let tagClass = row.status.toLowerCase();
-        if (row.status === "Sent") {
-          if (row.clicked_at) {
-            statusText = "Clicked";
-            tagClass = "clicked";
-          } else if (row.opened_at) {
-            statusText = row.is_bot_open ? "Opened (Scanner/Bot)" : "Opened (Human)";
-            tagClass = row.is_bot_open ? "opened-bot" : "opened";
+        if (row.clicked_at) {
+          statusText = "Clicked";
+          tagClass = "clicked";
+        } else if (row.opened_at) {
+          if (row.is_bot_open === 2) {
+            statusText = "Opened (Gmail Proxy)";
+            tagClass = "opened-gmail-proxy";
+          } else if (row.is_bot_open === 1) {
+            statusText = "Opened (Bot)";
+            tagClass = "opened-bot";
+          } else {
+            statusText = "Opened (Human)";
+            tagClass = "opened";
           }
+        } else if (row.status === "Failed") {
+          statusText = "Failed";
+          tagClass = "failed";
+        } else {
+          statusText = "Sent";
+          tagClass = "sent";
         }
 
         // Handle error column

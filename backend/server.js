@@ -277,6 +277,106 @@ app.get("/logout", (req, res, next) => {
   });
 });
 
+// Classification helper function
+function classifyRequest(userAgent, ip, elapsedSeconds) {
+  const uaLower = (userAgent || "").toLowerCase();
+  const isGoogleIP = (ip || "").startsWith("66.249.") || (ip || "").startsWith("209.85.");
+  const isGoogleProxyUA = uaLower.includes("googleimageproxy");
+
+  // Bot signatures
+  const isGoogleScanner = uaLower.includes("google-publisher-anonymizer") || 
+                          uaLower.includes("google-apps-script") || 
+                          uaLower.includes("googlebot");
+  const isOutlookSafeLinks = uaLower.includes("safelinks");
+  const isDefender = uaLower.includes("msip") || uaLower.includes("microsoft defender") || uaLower.includes("defender");
+  const isBarracuda = uaLower.includes("barracuda");
+  const isMimecast = uaLower.includes("mimecast");
+  const isProofpoint = uaLower.includes("proofpoint");
+  const isGenericScanner = uaLower.includes("crawler") || uaLower.includes("spider") || uaLower.includes("bot") || uaLower.includes("scanner");
+
+  const isBotSignature = isGoogleProxyUA || isGoogleIP || isGoogleScanner || isOutlookSafeLinks || isDefender || isBarracuda || isMimecast || isProofpoint || isGenericScanner;
+
+  // Real browser check
+  const isBrowser = uaLower.includes("mozilla") || 
+                    uaLower.includes("chrome") || 
+                    uaLower.includes("safari") || 
+                    uaLower.includes("firefox") || 
+                    uaLower.includes("applewebkit") || 
+                    uaLower.includes("opera") || 
+                    uaLower.includes("edge");
+
+  // 1. Strict timing check (Never classify as Human if within 60 seconds of delivery)
+  if (elapsedSeconds <= 60) {
+    let reason = `Request received within strict 60-second anti-prefetch window (${elapsedSeconds.toFixed(2)}s)`;
+    let isBotOpen = 1;
+    if (isGoogleProxyUA || isGoogleIP) {
+      isBotOpen = 2; // Gmail Proxy
+      reason = `Gmail Image Proxy prefetch within 60-second window (${elapsedSeconds.toFixed(2)}s)`;
+    } else if (isGoogleScanner) {
+      reason = "Google Security Scanner scan within 60s";
+    } else if (isOutlookSafeLinks) {
+      reason = "Outlook SafeLinks prefetch within 60s";
+    } else if (isDefender) {
+      reason = "Microsoft Defender scan within 60s";
+    } else if (isBarracuda) {
+      reason = "Barracuda scan within 60s";
+    } else if (isMimecast) {
+      reason = "Mimecast scan within 60s";
+    } else if (isProofpoint) {
+      reason = "Proofpoint scan within 60s";
+    } else if (isGenericScanner) {
+      reason = "Generic crawler/bot scan within 60s";
+    }
+    return { isBotOpen, reason };
+  }
+
+  // 2. Delayed requests (> 60 seconds)
+  if (isGoogleProxyUA || isGoogleIP) {
+    return {
+      isBotOpen: 2,
+      reason: `Gmail Image Proxy/Infrastructure routing (${isGoogleIP ? 'IP: ' + ip : 'UA: ' + userAgent})`
+    };
+  }
+  if (isGoogleScanner) {
+    return { isBotOpen: 1, reason: "Google Security Scanner signature matched" };
+  }
+  if (isOutlookSafeLinks) {
+    return { isBotOpen: 1, reason: "Outlook SafeLinks signature matched" };
+  }
+  if (isDefender) {
+    return { isBotOpen: 1, reason: "Microsoft Defender signature matched" };
+  }
+  if (isBarracuda) {
+    return { isBotOpen: 1, reason: "Barracuda signature matched" };
+  }
+  if (isMimecast) {
+    return { isBotOpen: 1, reason: "Mimecast signature matched" };
+  }
+  if (isProofpoint) {
+    return { isBotOpen: 1, reason: "Proofpoint signature matched" };
+  }
+  if (isGenericScanner) {
+    return { isBotOpen: 1, reason: "Generic crawler/bot/scanner signature matched" };
+  }
+
+  // Human status should only be written when ALL are true:
+  // - delay since sent > 60 seconds
+  // - User-Agent is a real browser
+  // - not any scanner/bot
+  if (isBrowser && !isBotSignature) {
+    return {
+      isBotOpen: 0,
+      reason: "Legitimate open from client browser outside prefetch window"
+    };
+  }
+
+  // Non-browser User-Agent
+  return {
+    isBotOpen: 1,
+    reason: `Non-browser User-Agent detected: "${userAgent}"`
+  };
+}
+
 // Open tracking pixel endpoint
 app.get("/track/open/:emailId", async (req, res) => {
   const { emailId } = req.params;
@@ -303,96 +403,13 @@ Reason: Database record does not exist for this ID\n`);
     } else {
       console.log(`[Tracking Log] Email found: ${emailId}`);
       
-      let isBotOpen = 0;
-      let classification = "Human Browser";
-      let reason = "Legitimate delayed open from a direct client browser";
-      const uaLower = userAgent.toLowerCase();
       const elapsedSeconds = (Date.now() - email.sent_at) / 1000;
-
-      const isGoogleIP = ip.startsWith("66.249.") || ip.startsWith("209.85.");
-      const isGoogleProxyUA = uaLower.includes("googleimageproxy");
-
-      // 1. Strict timing check (Never classify as Human if within 30 seconds of delivery)
-      if (elapsedSeconds <= 30) {
-        isBotOpen = 1;
-        classification = "Other Scanner";
-        reason = `Request received within strict 30-second prefetch filter (${elapsedSeconds.toFixed(2)}s)`;
-
-        if (uaLower.includes("google-publisher-anonymizer")) {
-          classification = "Google Security Scanner";
-        } else if (uaLower.includes("google-apps-script")) {
-          classification = "Google Apps Script";
-        } else if (uaLower.includes("googlebot")) {
-          classification = "Googlebot Crawler";
-        } else if (uaLower.includes("safelinks")) {
-          classification = "Outlook SafeLinks";
-        } else if (uaLower.includes("msip") || uaLower.includes("microsoft defender") || uaLower.includes("defender")) {
-          classification = "Other Scanner";
-          reason = "Microsoft Defender / Office 365 Scanner prefetch scan";
-        } else if (uaLower.includes("barracuda")) {
-          classification = "Barracuda";
-        } else if (uaLower.includes("mimecast")) {
-          classification = "Other Scanner";
-          reason = "Mimecast prefetch scan";
-        } else if (uaLower.includes("proofpoint")) {
-          classification = "Proofpoint";
-        } else if (isGoogleProxyUA || isGoogleIP) {
-          classification = "GoogleImageProxy Prefetch";
-          reason = `Gmail Image Proxy prefetch within 30-second window (${elapsedSeconds.toFixed(2)}s)`;
-        }
-      } else {
-        // 2. Delayed requests (> 30 seconds)
-        // Check bot signatures
-        if (uaLower.includes("google-publisher-anonymizer")) {
-          isBotOpen = 1;
-          classification = "Google Security Scanner";
-          reason = "Google Security Scanner signature matched";
-        } else if (uaLower.includes("google-apps-script")) {
-          isBotOpen = 1;
-          classification = "Google Apps Script";
-          reason = "Google Apps Script signature matched";
-        } else if (uaLower.includes("googlebot")) {
-          isBotOpen = 1;
-          classification = "Googlebot Crawler";
-          reason = "Googlebot Crawler signature matched";
-        } else if (uaLower.includes("safelinks")) {
-          isBotOpen = 1;
-          classification = "Outlook SafeLinks";
-          reason = "Outlook SafeLinks signature matched";
-        } else if (uaLower.includes("msip") || uaLower.includes("microsoft defender") || uaLower.includes("defender")) {
-          isBotOpen = 1;
-          classification = "Other Scanner";
-          reason = "Microsoft Defender signature matched";
-        } else if (uaLower.includes("barracuda")) {
-          isBotOpen = 1;
-          classification = "Barracuda";
-          reason = "Barracuda signature matched";
-        } else if (uaLower.includes("mimecast")) {
-          isBotOpen = 1;
-          classification = "Other Scanner";
-          reason = "Mimecast signature matched";
-        } else if (uaLower.includes("proofpoint")) {
-          isBotOpen = 1;
-          classification = "Proofpoint";
-          reason = "Proofpoint signature matched";
-        } else if (isGoogleProxyUA || isGoogleIP) {
-          // Gmail-specific hardening: If User-Agent contains GoogleImageProxy or matches Google IP range, classify as bot
-          isBotOpen = 1;
-          classification = "Gmail Image Proxy";
-          reason = `Gmail Image Proxy/Infrastructure routing (${isGoogleIP ? 'IP: ' + ip : 'UA: ' + userAgent})`;
-        } else if (uaLower.includes("crawler") || uaLower.includes("spider") || uaLower.includes("bot") || uaLower.includes("scanner")) {
-          isBotOpen = 1;
-          classification = "Other Scanner";
-          reason = "Generic scanner/bot signature matched";
-        } else {
-          // Real browser open after 30 seconds
-          isBotOpen = 0;
-          classification = "Human Browser";
-          reason = "Legitimate open from client browser outside prefetch window";
-        }
-      }
+      const { isBotOpen, reason } = classifyRequest(userAgent, ip, elapsedSeconds);
+      
+      const classification = isBotOpen === 2 ? "Opened (Gmail Proxy)" : (isBotOpen === 1 ? "Opened (Bot)" : "Opened (Human)");
 
       // Record in DB (including classification reason)
+      // This is the ONLY place that initiates open updates, which delegates database status modification to db.markEmailOpened
       const changes = await db.markEmailOpened(emailId, isBotOpen, ip, userAgent, reason);
 
       // Standard Audit Log Block

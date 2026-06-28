@@ -58,18 +58,55 @@ module.exports = {
   },
   
   markOpened(id, isBotOpen = 0, ip = null, userAgent = null, classificationReason = null) {
-    return new Promise((resolve, reject) => {
-      const now = Date.now();
-      db.run(
-        `UPDATE emails 
-         SET opened_at = ?, is_bot_open = ?, open_ip = ?, open_user_agent = ?, open_classification_reason = ?
-         WHERE id = ? AND (opened_at IS NULL OR (is_bot_open = 1 AND ? = 0))`,
-        [now, isBotOpen, ip, userAgent, classificationReason, id, isBotOpen],
-        function (err) {
-          if (err) reject(err);
-          else resolve(this.changes);
+    return new Promise(async (resolve, reject) => {
+      try {
+        const email = await this.getEmailById(id);
+        if (!email) {
+          return resolve(0);
         }
-      );
+
+        const now = Date.now();
+        const statusVal = isBotOpen ? "Opened (Bot)" : "Opened (Human)";
+        
+        // Check if the update would be applied based on the WHERE conditions
+        const wouldUpdate = !email.opened_at || 
+                            (email.is_bot_open === 1 && (isBotOpen === 0 || isBotOpen === 2)) ||
+                            (email.is_bot_open === 2 && isBotOpen === 0);
+
+        if (wouldUpdate) {
+          console.log("[STATUS UPDATE]", {
+              emailId: id,
+              oldStatus: email.status,
+              newStatus: statusVal,
+              userAgent: userAgent,
+              ip: ip,
+              sentAt: email.sent_at,
+              openedAt: now,
+              classification: isBotOpen ? "Opened (Bot)" : "Opened (Human)",
+              sourceFile: "db.js",
+              stack: new Error().stack
+          });
+
+          db.run(
+            `UPDATE emails 
+             SET opened_at = ?, status = ?, is_bot_open = ?, open_ip = ?, open_user_agent = ?, open_classification_reason = ?
+             WHERE id = ? AND (
+               opened_at IS NULL OR 
+               (is_bot_open = 1 AND ? IN (0, 2)) OR 
+               (is_bot_open = 2 AND ? = 0)
+             )`,
+            [now, statusVal, isBotOpen, ip, userAgent, classificationReason, id, isBotOpen, isBotOpen],
+            function (err) {
+              if (err) reject(err);
+              else resolve(this.changes);
+            }
+          );
+        } else {
+          resolve(0);
+        }
+      } catch (err) {
+        reject(err);
+      }
     });
   },
 
@@ -110,6 +147,8 @@ module.exports = {
           baseQuery += " AND opened_at IS NOT NULL AND (is_bot_open = 0 OR is_bot_open IS NULL)";
         } else if (filterStatus === "OpenedBot") {
           baseQuery += " AND opened_at IS NOT NULL AND is_bot_open = 1";
+        } else if (filterStatus === "OpenedGmailProxy") {
+          baseQuery += " AND opened_at IS NOT NULL AND is_bot_open = 2";
         } else if (filterStatus === "Clicked") {
           baseQuery += " AND clicked_at IS NOT NULL";
         } else {
@@ -152,9 +191,9 @@ module.exports = {
       db.get(
         `SELECT 
           COUNT(*) as total,
-          SUM(CASE WHEN status = 'Sent' THEN 1 ELSE 0 END) as sent,
+          SUM(CASE WHEN status != 'Failed' THEN 1 ELSE 0 END) as sent,
           SUM(CASE WHEN status = 'Failed' THEN 1 ELSE 0 END) as failed,
-          SUM(CASE WHEN opened_at IS NOT NULL AND (is_bot_open = 0 OR is_bot_open IS NULL) THEN 1 ELSE 0 END) as opened,
+          SUM(CASE WHEN status = 'Opened (Human)' THEN 1 ELSE 0 END) as opened,
           SUM(CASE WHEN clicked_at IS NOT NULL THEN 1 ELSE 0 END) as clicked
          FROM emails`,
         (err, row) => {
