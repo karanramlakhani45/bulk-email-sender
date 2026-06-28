@@ -154,23 +154,12 @@ document.addEventListener("DOMContentLoaded", () => {
 
         // Determine precise status tag
         let statusText = row.status;
-        let tagClass = row.status.toLowerCase();
-        if (row.clicked_at) {
-          statusText = "Clicked";
+        let tagClass = "sent";
+        if (row.status === "Clicked") {
           tagClass = "clicked";
-        } else if (row.opened_at) {
-          if (row.is_bot_open === 2) {
-            statusText = "Opened (Gmail Proxy)";
-            tagClass = "opened-gmail-proxy";
-          } else if (row.is_bot_open === 1) {
-            statusText = "Opened (Bot)";
-            tagClass = "opened-bot";
-          } else {
-            statusText = "Opened (Human)";
-            tagClass = "opened";
-          }
+        } else if (row.status === "Opened (Human)") {
+          tagClass = "opened";
         } else if (row.status === "Failed") {
-          statusText = "Failed";
           tagClass = "failed";
         } else {
           statusText = "Sent";

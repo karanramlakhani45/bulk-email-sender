@@ -484,9 +484,34 @@ app.get("/api/history", async (req, res) => {
   try {
     const result = await db.getEmails(search, status, page, limit);
     const isPersistent = !!process.env.PERSISTENT_STORAGE;
+    
+    const simplifiedHistory = result.history.map(row => {
+      const isBotOpen = row.is_bot_open === 1 || row.is_bot_open === 2;
+      
+      let userStatus = "Sent";
+      if (row.status === "Failed") {
+        userStatus = "Failed";
+      } else if (row.clicked_at) {
+        userStatus = "Clicked";
+      } else if (row.opened_at && !isBotOpen) {
+        userStatus = "Opened (Human)";
+      }
+
+      return {
+        id: row.id,
+        recipient_email: row.recipient_email,
+        subject: row.subject,
+        status: userStatus,
+        sent_at: row.sent_at,
+        opened_at: (row.opened_at && !isBotOpen) ? row.opened_at : null,
+        clicked_at: row.clicked_at,
+        error_message: row.error_message
+      };
+    });
+
     res.json({ 
       success: true, 
-      history: result.history, 
+      history: simplifiedHistory, 
       total: result.total,
       persistent: isPersistent,
       page,

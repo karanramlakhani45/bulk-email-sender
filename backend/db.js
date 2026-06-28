@@ -145,12 +145,10 @@ module.exports = {
       if (filterStatus) {
         if (filterStatus === "Opened") {
           baseQuery += " AND opened_at IS NOT NULL AND (is_bot_open = 0 OR is_bot_open IS NULL)";
-        } else if (filterStatus === "OpenedBot") {
-          baseQuery += " AND opened_at IS NOT NULL AND is_bot_open = 1";
-        } else if (filterStatus === "OpenedGmailProxy") {
-          baseQuery += " AND opened_at IS NOT NULL AND is_bot_open = 2";
         } else if (filterStatus === "Clicked") {
           baseQuery += " AND clicked_at IS NOT NULL";
+        } else if (filterStatus === "Sent") {
+          baseQuery += " AND (status = 'Sent' OR (opened_at IS NOT NULL AND is_bot_open IN (1, 2) AND clicked_at IS NULL))";
         } else {
           baseQuery += " AND status = ?";
           params.push(filterStatus);
@@ -193,7 +191,7 @@ module.exports = {
           COUNT(*) as total,
           SUM(CASE WHEN status != 'Failed' THEN 1 ELSE 0 END) as sent,
           SUM(CASE WHEN status = 'Failed' THEN 1 ELSE 0 END) as failed,
-          SUM(CASE WHEN status = 'Opened (Human)' THEN 1 ELSE 0 END) as opened,
+          SUM(CASE WHEN opened_at IS NOT NULL AND (is_bot_open = 0 OR is_bot_open IS NULL) THEN 1 ELSE 0 END) as opened,
           SUM(CASE WHEN clicked_at IS NOT NULL THEN 1 ELSE 0 END) as clicked
          FROM emails`,
         (err, row) => {
