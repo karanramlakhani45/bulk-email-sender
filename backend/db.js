@@ -73,6 +73,15 @@ module.exports = {
                             (email.is_bot_open === 1 && (isBotOpen === 0 || isBotOpen === 2)) ||
                             (email.is_bot_open === 2 && isBotOpen === 0);
 
+        console.log(`[DEBUG DB] Before Update for email: ${id}`, {
+          opened_at: email.opened_at,
+          status: email.status,
+          is_bot_open: email.is_bot_open,
+          open_ip: email.open_ip,
+          open_user_agent: email.open_user_agent,
+          open_classification_reason: email.open_classification_reason
+        });
+
         if (wouldUpdate) {
           console.log("[STATUS UPDATE]", {
               emailId: id,
@@ -97,11 +106,29 @@ module.exports = {
              )`,
             [now, statusVal, isBotOpen, ip, userAgent, classificationReason, id, isBotOpen, isBotOpen],
             function (err) {
-              if (err) reject(err);
-              else resolve(this.changes);
+              if (err) {
+                reject(err);
+              } else {
+                const changes = this.changes;
+                db.get("SELECT * FROM emails WHERE id = ?", [id], (err, row) => {
+                  if (row) {
+                    console.log(`[DEBUG DB] After Update for email: ${id}`, {
+                      opened_at: row.opened_at,
+                      status: row.status,
+                      is_bot_open: row.is_bot_open,
+                      open_ip: row.open_ip,
+                      open_user_agent: row.open_user_agent,
+                      open_classification_reason: row.open_classification_reason,
+                      changes: changes
+                    });
+                  }
+                  resolve(changes);
+                });
+              }
             }
           );
         } else {
+          console.log(`[DEBUG DB] No update needed for email: ${id}. wouldUpdate was false.`);
           resolve(0);
         }
       } catch (err) {

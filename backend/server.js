@@ -406,7 +406,11 @@ app.get("/track/open/:emailId", async (req, res) => {
   const referer = req.headers["referer"] || "none";
   const timestamp = new Date().toISOString();
 
-  console.log(`[Tracking Log] Open request received for email ID: ${emailId} | IP: ${ip} | User-Agent: ${userAgent}`);
+  console.log(`[DEBUG TRACK] Open request received.
+  - Email ID: ${emailId}
+  - Request time: ${timestamp}
+  - IP: ${ip}
+  - User-Agent: ${userAgent}`);
 
   try {
     const email = await db.getEmailById(emailId);
@@ -428,6 +432,13 @@ Reason: Database record does not exist for this ID\n`);
       const { isBotOpen, reason } = classifyRequest(userAgent, ip, elapsedSeconds);
       
       const classification = isBotOpen === 2 ? "Opened (Gmail Proxy)" : (isBotOpen === 1 ? "Opened (Bot)" : "Opened (Human)");
+
+      console.log(`[DEBUG TRACK] Classifier Result:
+      - Email ID: ${emailId}
+      - elapsedSeconds: ${elapsedSeconds.toFixed(2)}s
+      - isBotOpen: ${isBotOpen}
+      - classification: ${classification}
+      - reason: ${reason}`);
 
       // Record in DB (including classification reason)
       // This is the ONLY place that initiates open updates, which delegates database status modification to db.markEmailOpened
@@ -535,6 +546,8 @@ app.get("/api/history", async (req, res) => {
         error_message: row.error_message
       };
     });
+
+    console.log(`[DEBUG API] /api/history response:`, JSON.stringify(simplifiedHistory, null, 2));
 
     res.json({ 
       success: true, 
