@@ -91,27 +91,35 @@ function getBackendOrigin(req) {
   
   const isProd = process.env.NODE_ENV === "production";
   
-  // Fallback to request host only in development
-  if (!isProd && req) {
-    return `${req.protocol}://${req.get("host")}`;
-  }
-  
-  // If in production, fallback to request host only if not localhost/127.0.0.1
-  if (isProd && req) {
-    const host = req.get("host");
-    if (!host.includes("localhost") && !host.includes("127.0.0.1")) {
-      return `${req.protocol}://${host}`;
-    }
-  }
-  
-  if (process.env.CALLBACK_URL) {
-    try {
-      const origin = new URL(process.env.CALLBACK_URL).origin;
-      const isLocal = origin.includes("localhost") || origin.includes("127.0.0.1");
-      if (!isProd || !isLocal) {
-        return origin;
+  if (isProd) {
+    // 1. Try request host first (force HTTPS in production)
+    if (req) {
+      const host = req.get("host");
+      if (!host.includes("localhost") && !host.includes("127.0.0.1")) {
+        return `https://${host}`;
       }
-    } catch (e) {}
+    }
+
+    // 2. Try CALLBACK_URL fallback
+    if (process.env.CALLBACK_URL) {
+      try {
+        const origin = new URL(process.env.CALLBACK_URL).origin;
+        if (!origin.includes("localhost") && !origin.includes("127.0.0.1")) {
+          return origin.replace(/^http:/, "https:");
+        }
+      } catch (e) {}
+    }
+  } else {
+    // In development/local env
+    if (req) {
+      return `${req.protocol}://${req.get("host")}`;
+    }
+    
+    if (process.env.CALLBACK_URL) {
+      try {
+        return new URL(process.env.CALLBACK_URL).origin;
+      } catch (e) {}
+    }
   }
   
   return "http://localhost:5000";
@@ -400,6 +408,7 @@ Final classification: ${classification}\n`);
 
 // Open tracking pixel endpoint
 app.get("/track/open/:emailId", async (req, res) => {
+  console.log("[TRACK OPEN]", req.originalUrl, req.headers["user-agent"]);
   const { emailId } = req.params;
   const ip = req.ip || req.headers["x-forwarded-for"] || req.socket.remoteAddress;
   const userAgent = req.headers["user-agent"] || "unknown";
@@ -466,11 +475,11 @@ Reason: ${reason}\n`);
   }
 
   const pixel = Buffer.from(
-    "R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7",
+    "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII=",
     "base64"
   );
   res.writeHead(200, {
-    "Content-Type": "image/gif",
+    "Content-Type": "image/png",
     "Content-Length": pixel.length,
     "Cache-Control": "no-cache, no-store, must-revalidate",
     "Pragma": "no-cache",
@@ -612,7 +621,17 @@ app.post(
         let trackedMessage = rewriteLinks(message, emailId, backendOrigin);
         
         // Append open tracking pixel
-        trackedMessage += `<img src="${backendOrigin}/track/open/${emailId}" width="1" height="1" style="display:none;" />`;
+        const trackingPixelTag = `<img src="${backendOrigin}/track/open/${emailId}" width="1" height="1" style="display:none;" />`;
+        trackedMessage += trackingPixelTag;
+
+        console.log(`[EMAIL GENERATION PIPELINE]
+  - emailId: ${emailId}
+  - recipient: ${email}
+  - backendOrigin: ${backendOrigin}
+  - trackingPixelTag: ${trackingPixelTag}
+  - isPointingToLocalhost: ${backendOrigin.includes("localhost") || backendOrigin.includes("127.0.0.1")}
+  - trackingPixelInjected: ${trackedMessage.includes(trackingPixelTag)}
+  - finalHTML: \n${trackedMessage}\n`);
 
         const mailOptions = {
           from: user.emails[0].value,
