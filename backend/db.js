@@ -57,7 +57,7 @@ module.exports = {
     });
   },
   
-  markOpened(id, isBotOpen = 0, ip = null, userAgent = null, classificationReason = null) {
+  markEmailOpened(id, isBotOpen = 0, ip = null, userAgent = null, classificationReason = null) {
     return new Promise(async (resolve, reject) => {
       try {
         const email = await this.getEmailById(id);
@@ -137,11 +137,7 @@ module.exports = {
     });
   },
 
-  markEmailOpened(id, isBotOpen = 0, ip = null, userAgent = null, classificationReason = null) {
-    return this.markOpened(id, isBotOpen, ip, userAgent, classificationReason);
-  },
-
-  markClicked(id) {
+  markEmailClicked(id) {
     return new Promise((resolve, reject) => {
       const now = Date.now();
       db.run(
@@ -153,10 +149,6 @@ module.exports = {
         }
       );
     });
-  },
-
-  markEmailClicked(id) {
-    return this.markClicked(id);
   },
 
   getEmails(search = "", filterStatus = "", page = null, limit = null) {

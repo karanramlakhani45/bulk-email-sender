@@ -285,12 +285,23 @@ app.get("/logout", (req, res, next) => {
   });
 });
 
-// Classification helper function
-// Classification helper function
-function classifyRequest(userAgent, ip, elapsedSeconds) {
+function classifyRequest(userAgent, ip, elapsedSeconds, hasPrefetched = false) {
   const uaLower = (userAgent || "").toLowerCase();
-  const isGoogleIP = (ip || "").startsWith("66.249.") || (ip || "").startsWith("209.85.");
-  const isGoogleProxyUA = uaLower.includes("googleimageproxy");
+  
+  // Strip IPv6 prefix for mapped IPv4 addresses to ensure range checks work
+  const cleanIp = (ip || "").replace(/^::ffff:/, "");
+  
+  const isGoogleIP = cleanIp.startsWith("66.249.") || cleanIp.startsWith("209.85.");
+  const isGoogleProxyUA = uaLower.includes("googleimageproxy") || uaLower.includes("via ggpht.com");
+  
+  const isYahooProxy = uaLower.includes("yahoomailproxy");
+  
+  const isMicrosoftProxy = uaLower.includes("microsoft office") || 
+                           uaLower.includes("microsoft exchange") || 
+                           uaLower.includes("outlook-express") || 
+                           uaLower.includes("officeactualimageproxy");
+
+  const isProxySign = isGoogleProxyUA || isGoogleIP || isYahooProxy || isMicrosoftProxy;
 
   // Bot signatures
   const isGoogleScanner = uaLower.includes("google-publisher-anonymizer") || 
@@ -303,7 +314,7 @@ function classifyRequest(userAgent, ip, elapsedSeconds) {
   const isProofpoint = uaLower.includes("proofpoint");
   const isGenericScanner = uaLower.includes("crawler") || uaLower.includes("spider") || uaLower.includes("bot") || uaLower.includes("scanner");
 
-  const isBotSignature = isGoogleProxyUA || isGoogleIP || isGoogleScanner || isOutlookSafeLinks || isDefender || isBarracuda || isMimecast || isProofpoint || isGenericScanner;
+  const isBotSignature = isProxySign || isGoogleScanner || isOutlookSafeLinks || isDefender || isBarracuda || isMimecast || isProofpoint || isGenericScanner;
 
   // Real browser check
   const isBrowser = uaLower.includes("mozilla") || 
@@ -325,6 +336,14 @@ function classifyRequest(userAgent, ip, elapsedSeconds) {
       isBotOpen = 2; // Gmail Proxy
       reason = `Gmail Image Proxy prefetch within 60-second window (${elapsedSeconds.toFixed(2)}s)`;
       matchedRule = "Anti-prefetch window & Google Image Proxy";
+    } else if (isYahooProxy) {
+      isBotOpen = 1;
+      reason = `Yahoo Image Proxy prefetch within 60-second window (${elapsedSeconds.toFixed(2)}s)`;
+      matchedRule = "Anti-prefetch window & Yahoo Proxy";
+    } else if (isMicrosoftProxy) {
+      isBotOpen = 1;
+      reason = `Microsoft Image Proxy prefetch within 60-second window (${elapsedSeconds.toFixed(2)}s)`;
+      matchedRule = "Anti-prefetch window & Microsoft Proxy";
     } else if (isGoogleScanner) {
       matchedRule = "Anti-prefetch window & Google Scanner";
       reason = "Google Security Scanner scan within 60s";
@@ -352,9 +371,27 @@ function classifyRequest(userAgent, ip, elapsedSeconds) {
   } else {
     // 2. Delayed requests (> 60 seconds)
     if (isGoogleProxyUA || isGoogleIP) {
-      isBotOpen = 2;
-      reason = `Gmail Image Proxy/Infrastructure routing (${isGoogleIP ? 'IP: ' + ip : 'UA: ' + userAgent})`;
-      matchedRule = "Google Image Proxy outside prefetch window";
+      // Gmail heuristic: if we already saw an open OR it is delayed > 5 mins (300s)
+      if (hasPrefetched || elapsedSeconds > 300) {
+        isBotOpen = 0;
+        reason = `Gmail Image Proxy open (human verified via ${hasPrefetched ? 'subsequent view' : 'delay: ' + elapsedSeconds.toFixed(0) + 's'})`;
+        matchedRule = "Google Image Proxy human open";
+      } else {
+        isBotOpen = 2;
+        reason = `Gmail Image Proxy suspicious/prefetch open (${elapsedSeconds.toFixed(2)}s)`;
+        matchedRule = "Google Image Proxy suspected scanner/late prefetch";
+      }
+    } else if (isYahooProxy || isMicrosoftProxy) {
+      const type = isYahooProxy ? "Yahoo" : "Microsoft";
+      if (hasPrefetched || elapsedSeconds > 300) {
+        isBotOpen = 0;
+        reason = `${type} Image Proxy open (human verified via ${hasPrefetched ? 'subsequent view' : 'delay: ' + elapsedSeconds.toFixed(0) + 's'})`;
+        matchedRule = `${type} Image Proxy human open`;
+      } else {
+        isBotOpen = 1;
+        reason = `${type} Image Proxy suspicious/prefetch open (${elapsedSeconds.toFixed(2)}s)`;
+        matchedRule = `${type} Image Proxy suspected scanner/late prefetch`;
+      }
     } else if (isGoogleScanner) {
       isBotOpen = 1;
       reason = "Google Security Scanner signature matched";
@@ -383,7 +420,7 @@ function classifyRequest(userAgent, ip, elapsedSeconds) {
       isBotOpen = 1;
       reason = "Generic crawler/bot/scanner signature matched";
       matchedRule = "Generic crawler/bot/scanner outside prefetch window";
-    } else if (isBrowser && !isBotSignature) {
+    } else if (isBrowser) {
       isBotOpen = 0;
       reason = "Legitimate open from client browser outside prefetch window";
       matchedRule = "Real Browser UA outside prefetch window";
@@ -399,7 +436,7 @@ function classifyRequest(userAgent, ip, elapsedSeconds) {
   console.log(`\n[CLASSIFIER DECISION]
 Elapsed: ${elapsedSeconds.toFixed(2)}s
 UA: ${userAgent}
-IP: ${ip}
+IP: ${ip} (clean: ${cleanIp})
 Matched rule: ${matchedRule}
 Final classification: ${classification}\n`);
 
@@ -408,7 +445,6 @@ Final classification: ${classification}\n`);
 
 // Open tracking pixel endpoint
 app.get("/track/open/:emailId", async (req, res) => {
-  console.log("[TRACK OPEN]", req.originalUrl, req.headers["user-agent"]);
   const { emailId } = req.params;
   const ip = req.ip || req.headers["x-forwarded-for"] || req.socket.remoteAddress;
   const userAgent = req.headers["user-agent"] || "unknown";
@@ -438,7 +474,8 @@ Reason: Database record does not exist for this ID\n`);
       console.log(`[Tracking Log] Email found: ${emailId}`);
       
       const elapsedSeconds = (Date.now() - email.sent_at) / 1000;
-      const { isBotOpen, reason } = classifyRequest(userAgent, ip, elapsedSeconds);
+      const hasPrefetched = email.opened_at !== null;
+      const { isBotOpen, reason } = classifyRequest(userAgent, ip, elapsedSeconds, hasPrefetched);
       
       const classification = isBotOpen === 2 ? "Opened (Gmail Proxy)" : (isBotOpen === 1 ? "Opened (Bot)" : "Opened (Human)");
 
@@ -503,7 +540,7 @@ app.get("/track/click/:emailId", async (req, res) => {
   }
 
   try {
-    const changes = await db.markClicked(emailId);
+    const changes = await db.markEmailClicked(emailId);
     console.log(`[Tracking Log] Click marked. Changes: ${changes}`);
     
     const openChanges = await db.markEmailOpened(emailId, 0, ip, userAgent, "Click event verified human open");
@@ -624,14 +661,7 @@ app.post(
         const trackingPixelTag = `<img src="${backendOrigin}/track/open/${emailId}" width="1" height="1" style="display:none;" />`;
         trackedMessage += trackingPixelTag;
 
-        console.log(`[EMAIL GENERATION PIPELINE]
-  - emailId: ${emailId}
-  - recipient: ${email}
-  - backendOrigin: ${backendOrigin}
-  - trackingPixelTag: ${trackingPixelTag}
-  - isPointingToLocalhost: ${backendOrigin.includes("localhost") || backendOrigin.includes("127.0.0.1")}
-  - trackingPixelInjected: ${trackedMessage.includes(trackingPixelTag)}
-  - finalHTML: \n${trackedMessage}\n`);
+
 
         const mailOptions = {
           from: user.emails[0].value,

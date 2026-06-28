@@ -4,7 +4,9 @@ if (window.location.hostname === "127.0.0.1") {
 
 const API_BASE_URL = window.location.hostname === "localhost" || window.location.hostname === "127.0.0.1"
   ? `${window.location.protocol}//${window.location.hostname}:5000`
-  : "https://bulk-email-sender-uaig.onrender.com";
+  : (window.location.hostname.endsWith(".onrender.com")
+      ? window.location.origin
+      : "https://bulk-email-uaig.onrender.com");
 
 document.addEventListener("DOMContentLoaded", () => {
   // Auth Protection Guard
