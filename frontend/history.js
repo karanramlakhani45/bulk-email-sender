@@ -152,7 +152,6 @@ document.addEventListener("DOMContentLoaded", () => {
         // Format dates
         const sentTime = new Date(row.sent_at).toLocaleString();
         const openTime = row.opened_at ? new Date(row.opened_at).toLocaleString() : "-";
-        const clickTime = row.clicked_at ? new Date(row.clicked_at).toLocaleString() : "-";
 
         // Determine precise status tag
         let statusText = row.status;
@@ -181,7 +180,6 @@ document.addEventListener("DOMContentLoaded", () => {
           <td>${row.subject}</td>
           <td><span class="status-tag ${tagClass}">${statusText}</span></td>
           <td>${openTime}</td>
-          <td>${clickTime}</td>
           <td>${errorContent}</td>
         `;
         tbody.appendChild(tr);
