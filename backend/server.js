@@ -290,10 +290,13 @@ async function getUserFromRequest(req, res) {
 
     // Before every verify, dynamically check token validity and scopes via tokeninfo endpoint
     let tokenStatus = await validateTokenScopes(user.accessToken);
-    if (!tokenStatus.valid) {
-      console.warn(`[getUserFromRequest] Active token is invalid or lacks gmail.send (${tokenStatus.error}). Forcing refresh...`);
-      isExpired = true; // force refresh
-    }
+   if (!tokenStatus.valid) {
+  console.warn("[getUserFromRequest] Scope validation failed:", tokenStatus.error);
+
+  // User ko logout mat karo.
+  // Bas warning do aur current session continue rehne do.
+  return user;
+}
 
     if (isExpired && user.refreshToken) {
       console.log(`- Access Token is expired or lacks scopes. Refreshing using Refresh Token...`);
@@ -446,7 +449,7 @@ passport.deserializeUser((user, done) => {
 console.log("CLIENT_ID:", process.env.CLIENT_ID);
 console.log("CALLBACK_URL:", process.env.CALLBACK_URL);
 passport.use(
-  new GoogleStrategy(
+  
     {
       clientID: process.env.CLIENT_ID,
       clientSecret: process.env.CLIENT_SECRET,
@@ -455,7 +458,7 @@ passport.use(
     (accessToken, refreshToken, params, profile, done) => {
       console.log("\n[OAuth Callback Executing]");
       console.log("- Access Token:", accessToken ? `${accessToken.substring(0, 10)}...` : "None");
-      console.log("- Refresh Token:", refreshToken ? "Present" : "Missing/Null");
+      console.log("- Renew GoogleStrategy(fresh Token:", refreshToken ? "Present" : "Missing/Null");
       console.log("- Params (Scopes, expiration, etc):", JSON.stringify(params, null, 2));
       console.log("- Profile ID:", profile.id);
       console.log("- Profile Name:", profile.displayName);
