@@ -51,7 +51,10 @@ document.addEventListener("DOMContentLoaded", () => {
         const userEmailSpan = document.getElementById("userEmail");
         const userAvatarImg = document.getElementById("userAvatar");
         if (userEmailSpan) {
-          userEmailSpan.textContent = data.user.emails?.[0]?.value || data.user.displayName || "Gmail User";
+          const email = data.user.emails?.[0]?.value || data.user.displayName || "Gmail User";
+          const statusText = data.mailServiceEnabled ? " (Active)" : " (Mail Service Disabled)";
+          userEmailSpan.textContent = email + statusText;
+          userEmailSpan.style.color = data.mailServiceEnabled ? "#a3ffc0" : "#ffb3b9";
         }
         if (userAvatarImg && data.user.photos?.[0]?.value) {
           userAvatarImg.src = data.user.photos[0].value;

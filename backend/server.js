@@ -10,6 +10,7 @@ const GoogleStrategy = require("passport-google-oauth20").Strategy;
 const crypto = require("crypto");
 const path = require("path");
 const db = require("./db");
+const { google } = require("googleapis");
 require("dotenv").config();
 
 const app = express();
@@ -115,6 +116,59 @@ async function refreshGoogleAccessToken(refreshToken) {
   }
 }
 
+function getGmailClient(user, res = null) {
+  if (!user || !user.accessToken) {
+    throw new Error("Cannot initialize Gmail client: user is not authenticated or access token is missing.");
+  }
+  
+  const oauth2Client = new google.auth.OAuth2(
+    process.env.CLIENT_ID,
+    process.env.CLIENT_SECRET,
+    process.env.CALLBACK_URL
+  );
+  
+  oauth2Client.setCredentials({
+    access_token: user.accessToken,
+    refresh_token: user.refreshToken
+  });
+
+  oauth2Client.on("tokens", (tokens) => {
+    console.log("[Gmail Client] Google OAuth2 client automatically refreshed tokens:", JSON.stringify(tokens));
+    if (tokens.access_token) {
+      user.accessToken = tokens.access_token;
+      if (tokens.expiry_date) {
+        user.googleExpiresAt = tokens.expiry_date;
+      }
+      
+      // Update JWT token and send it back to client via header
+      if (res && !res.headersSent) {
+        const payload = {
+          user: user,
+          expiresAt: Date.now() + 7 * 24 * 60 * 60 * 1000
+        };
+        const newToken = encryptToken(payload);
+        console.log("[Gmail Client] Attaching automatically refreshed Bearer token to X-New-Token header");
+        res.setHeader("X-New-Token", newToken);
+      }
+    }
+  });
+
+  console.log(`[Gmail client initialized] Gmail API client successfully created for user: ${user.emails?.[0]?.value || user.displayName}`);
+  return google.gmail({ version: "v1", auth: oauth2Client });
+}
+
+async function checkMailServiceStatus(gmailClient) {
+  try {
+    console.log("[Gmail Readiness Check] Querying Gmail user profile to verify service is enabled...");
+    const res = await gmailClient.users.getProfile({ userId: "me" });
+    console.log("[Mail service enabled] Mail service verification succeeded for user:", res.data.emailAddress);
+    return { enabled: true, profile: res.data };
+  } catch (err) {
+    console.error("[Gmail Readiness Check] Mail service is NOT enabled or verification failed:", err.message);
+    return { enabled: false, error: err.message };
+  }
+}
+
 function generateToken(user) {
   const payload = {
     user: {
@@ -160,6 +214,7 @@ async function getUserFromRequest(req, res) {
   }
 
   if (user) {
+    console.log(`[Tokens loaded] Tokens loaded successfully for user: ${user.emails?.[0]?.value || user.displayName}`);
     // Check if Google Access Token is expired or about to expire in 5 minutes
     const bufferTime = 5 * 60 * 1000; // 5 minutes
     const now = Date.now();
@@ -402,6 +457,7 @@ authRouter.get(
     }
 
     console.log(`[OAuth Callback Route] User authenticated: ${req.user.emails?.[0]?.value || req.user.displayName}`);
+    console.log(`[OAuth callback completed] OAuth callback completed successfully for user: ${req.user.emails?.[0]?.value || req.user.displayName}`);
     console.log(`- Scope:`, req.user.scopes);
     console.log(`- Google Access Token:`, req.user.accessToken ? `${req.user.accessToken.substring(0, 10)}...` : "None");
     console.log(`- Google Refresh Token:`, req.user.refreshToken ? "Present" : "Missing");
@@ -414,9 +470,25 @@ authRouter.get(
 
 authRouter.get("/me", async (req, res) => {
   const user = await getUserFromRequest(req, res);
+  let mailServiceEnabled = false;
+  let gmailProfile = null;
+  
+  if (user) {
+    try {
+      const gmailClient = getGmailClient(user, res);
+      const status = await checkMailServiceStatus(gmailClient);
+      mailServiceEnabled = status.enabled;
+      gmailProfile = status.profile;
+    } catch (err) {
+      console.error("[Auth Me] Failed to verify Gmail service status:", err.message);
+    }
+  }
+
   res.json({
     loggedIn: !!user,
-    user: user || null
+    user: user || null,
+    mailServiceEnabled,
+    gmailProfile
   });
 });
 
@@ -439,9 +511,25 @@ app.use("/auth", authRouter);
 // Backward compatibility aliases
 app.get("/user", async (req, res) => {
   const user = await getUserFromRequest(req, res);
+  let mailServiceEnabled = false;
+  let gmailProfile = null;
+  
+  if (user) {
+    try {
+      const gmailClient = getGmailClient(user, res);
+      const status = await checkMailServiceStatus(gmailClient);
+      mailServiceEnabled = status.enabled;
+      gmailProfile = status.profile;
+    } catch (err) {
+      console.error("[User Endpoint] Failed to verify Gmail service status:", err.message);
+    }
+  }
+
   res.json({
     loggedIn: !!user,
-    user: user || null
+    user: user || null,
+    mailServiceEnabled,
+    gmailProfile
   });
 });
 
@@ -814,9 +902,39 @@ app.post(
       const user = await getUserFromRequest(req, res);
 
       if (!user) {
+        console.warn("[Gmail Send Campaign] Sending blocked: Not Logged In");
         return res.json({
           success: false,
           message: "Not Logged In"
+        });
+      }
+
+      // 1. Load Tokens Info
+      console.log(`\n[Gmail Send Campaign] User initiating email sending: ${user.emails?.[0]?.value || user.displayName}`);
+      console.log(`[Tokens Loaded] Loaded tokens for user: ${user.emails?.[0]?.value || user.displayName}`);
+      console.log(`- Access Token: ${user.accessToken ? `${user.accessToken.substring(0, 10)}...` : "None"}`);
+      console.log(`- Refresh Token: ${user.refreshToken ? "Present" : "Missing"}`);
+      await logTokenInfo(user.accessToken, "Before Campaign Send");
+
+      // 2. Initialize Gmail client
+      let gmailClient;
+      try {
+        gmailClient = getGmailClient(user, res);
+      } catch (err) {
+        console.error(`[Gmail Send Campaign] Sending blocked: Gmail client initialization failed: ${err.message}`);
+        return res.json({
+          success: false,
+          error: `Gmail client initialization failed: ${err.message}`
+        });
+      }
+
+      // 3. Verify Gmail Mail Service Status
+      const serviceStatus = await checkMailServiceStatus(gmailClient);
+      if (!serviceStatus.enabled) {
+        console.error(`[Gmail Send Campaign] Sending blocked: Mail service not enabled. Reason: ${serviceStatus.error}`);
+        return res.json({
+          success: false,
+          error: `Mail service not enabled: ${serviceStatus.error}`
         });
       }
 
@@ -827,12 +945,7 @@ app.post(
       const sent = [];
       const failed = [];
 
-      // Query tokeninfo for debug logging right before sending campaign
-      console.log(`\n[Gmail Send Campaign] User initiating email sending: ${user.emails?.[0]?.value || user.displayName}`);
-      console.log(`- Authorization Header to be used: Bearer ${user.accessToken ? `${user.accessToken.substring(0, 10)}...` : "None"}`);
-      await logTokenInfo(user.accessToken, "Before Campaign Send");
-
-      // Send emails in parallel using Gmail HTTP API
+      // Send emails in parallel using Gmail API Client
       const emailPromises = emails.map(async (email) => {
         const emailId = crypto.randomBytes(16).toString("hex");
         const backendOrigin = getBackendOrigin(req);
@@ -875,26 +988,16 @@ app.post(
             .replace(/\//g, '_')
             .replace(/=+$/, '');
 
-          console.log(`[Gmail Send API Call] Sending to: ${email}`);
-          console.log(`- Authorization Header for request: Bearer ${user.accessToken ? `${user.accessToken.substring(0, 10)}...` : "None"}`);
-
-          const response = await fetch("https://gmail.googleapis.com/gmail/v1/users/me/messages/send", {
-            method: "POST",
-            headers: {
-              "Authorization": `Bearer ${user.accessToken}`,
-              "Content-Type": "application/json"
-            },
-            body: JSON.stringify({
+          console.log(`[sendEmail() entered] Attempting to send email to ${email}`);
+          
+          const response = await gmailClient.users.messages.send({
+            userId: "me",
+            requestBody: {
               raw: encodedMessage
-            })
+            }
           });
 
-          const data = await response.json();
-          if (!response.ok) {
-            console.error(`[Gmail API Error Response] Status: ${response.status}`, JSON.stringify(data, null, 2));
-            throw new Error(data.error?.message || "Failed to send via Gmail API");
-          }
-
+          console.log(`[Gmail Send API Call] Success response ID: ${response.data.id} for recipient: ${email}`);
           sent.push(email);
 
           // Save sent log in SQLite DB
