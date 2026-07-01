@@ -192,44 +192,76 @@ async function validateTokenScopes(accessToken) {
 async function checkMailServiceStatus(gmailClient, user) {
   try {
     console.log("[Gmail Readiness Check] Querying Gmail user profile to verify service is enabled...");
-    const res = await gmailClient.users.getProfile({ userId: "me" });
-    console.log("[Mail service enabled] Mail service verification succeeded for user:", res.data.emailAddress);
-    return { enabled: true, profile: res.data };
+
+    const response = await gmailClient.users.getProfile({
+      userId: "me"
+    });
+
+    console.log("[Mail service enabled] Mail service verification succeeded for user:", response.data.emailAddress);
+
+    return {
+      enabled: true,
+      profile: response.data
+    };
+
   } catch (err) {
-    console.warn("[Gmail Readiness Check] Verification request returned an error:", err.message);
-    
-    // Case 1: Gmail API authentication error
-    const isAuthError = err.code === 401 || (err.message && (
-      err.message.toLowerCase().includes("invalid_grant") || 
-      err.message.toLowerCase().includes("invalid credentials") ||
-      err.message.toLowerCase().includes("auth")
-    ));
-    if (isAuthError) {
-      console.error("[Gmail Readiness Check] Authentication error: token invalid/expired.");
-      return { enabled: false, error: "Gmail API authentication failed.", type: "AUTH_ERROR" };
+
+    console.log("========== GMAIL ERROR ==========");
+    console.log("Code:", err.code);
+    console.log("Message:", err.message);
+    console.log("=================================");
+
+    // gmail.send scope only (expected)
+    if (
+      err.code == 403 ||
+      (err.message &&
+        (
+          err.message.includes("Request had insufficient authentication scopes") ||
+          err.message.includes("insufficient authentication scopes")
+        ))
+    ) {
+      console.log("[Gmail Readiness Check] gmail.send scope detected. Marking account as ACTIVE.");
+
+      return {
+        enabled: true,
+        profile: null,
+        type: "SEND_ONLY_SCOPE"
+      };
     }
-    
-    // Case 2: Missing OAuth scope or 403 Forbidden due to limited scope (e.g. only gmail.send)
-    const isForbidden = err.code === 403 || err.code === "403" || (err.message && (
-      err.message.toLowerCase().includes("permission") ||
-      err.message.toLowerCase().includes("scope") ||
-      err.message.toLowerCase().includes("forbidden")
-    ));
-    if (isForbidden) {
-      console.log("[Gmail Readiness Check] 403 Forbidden on getProfile is expected since only gmail.send is authorized. Marking as active.");
-      return { enabled: true, profile: null, type: "SCOPE_VERIFIED" };
+
+    // Invalid or expired token
+    if (err.code == 401) {
+      console.log("[Gmail Readiness Check] Invalid or expired token.");
+
+      return {
+        enabled: false,
+        profile: null,
+        type: "AUTH_ERROR"
+      };
     }
-    
-    // Case 3: User mail service disabled (Google API error message 'Mail service not enabled')
-    const isServiceDisabled = err.message && err.message.toLowerCase().includes("mail service not enabled");
-    if (isServiceDisabled) {
-      console.error("[Gmail Readiness Check] User mail service is disabled.");
-      return { enabled: false, error: "Mail service not enabled for this Google account.", type: "SERVICE_DISABLED" };
+
+    // Mail service disabled
+    if (
+      err.message &&
+      err.message.toLowerCase().includes("mail service not enabled")
+    ) {
+      console.log("[Gmail Readiness Check] Mail service disabled.");
+
+      return {
+        enabled: false,
+        profile: null,
+        type: "SERVICE_DISABLED"
+      };
     }
-    
-    // Case 4: Temporary/transient Gmail API failure (e.g. rate limit 429, network timeout, 5xx backend error)
-    console.log("[Gmail Readiness Check] Temporary or transient API failure. Retaining enabled status.");
-    return { enabled: true, warning: err.message, type: "TEMPORARY_FAILURE" };
+
+    // Any other temporary error
+    console.log("[Gmail Readiness Check] Temporary Gmail API error. Keeping account ACTIVE.");
+
+    return {
+      enabled: true,
+      profile: null,
+      type: "TEMP_ERROR"
+    };
   }
 }
 
