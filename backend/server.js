@@ -54,6 +54,67 @@ function decryptToken(token) {
   }
 }
 
+async function logTokenInfo(accessToken, context = "") {
+  try {
+    if (!accessToken) {
+      console.log(`[Google TokenInfo - ${context}] Access Token is empty/missing`);
+      return null;
+    }
+    const response = await fetch(`https://oauth2.googleapis.com/tokeninfo?access_token=${accessToken}`);
+    const data = await response.json();
+    if (!response.ok) {
+      console.error(`[Google TokenInfo - ${context}] Error response:`, JSON.stringify(data, null, 2));
+      return null;
+    }
+    console.log(`[Google TokenInfo - ${context}] Info:`, JSON.stringify(data, null, 2));
+    return data;
+  } catch (err) {
+    console.error(`[Google TokenInfo - ${context}] Failed to query tokeninfo:`, err.message);
+    return null;
+  }
+}
+
+async function refreshGoogleAccessToken(refreshToken) {
+  try {
+    if (!refreshToken) {
+      console.error("[refreshGoogleAccessToken] Cannot refresh: Refresh token is missing!");
+      return null;
+    }
+    console.log("[refreshGoogleAccessToken] Querying Google OAuth token endpoint to refresh access token...");
+    const response = await fetch("https://oauth2.googleapis.com/token", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/x-www-form-urlencoded"
+      },
+      body: new URLSearchParams({
+        client_id: process.env.CLIENT_ID,
+        client_secret: process.env.CLIENT_SECRET,
+        refresh_token: refreshToken,
+        grant_type: "refresh_token"
+      })
+    });
+
+    const data = await response.json();
+    if (!response.ok) {
+      console.error("[refreshGoogleAccessToken] Google OAuth token endpoint error response:", JSON.stringify(data, null, 2));
+      return null;
+    }
+
+    console.log("[refreshGoogleAccessToken] Successfully refreshed Google access token!", {
+      expires_in: data.expires_in,
+      scope: data.scope
+    });
+
+    return {
+      accessToken: data.access_token,
+      expiresIn: data.expires_in
+    };
+  } catch (err) {
+    console.error("[refreshGoogleAccessToken] Exception during refresh request:", err);
+    return null;
+  }
+}
+
 function generateToken(user) {
   const payload = {
     user: {
@@ -61,26 +122,81 @@ function generateToken(user) {
       displayName: user.displayName,
       emails: user.emails,
       photos: user.photos,
-      accessToken: user.accessToken
+      accessToken: user.accessToken,
+      refreshToken: user.refreshToken,
+      googleExpiresAt: user.googleExpiresAt,
+      scopes: user.scopes
     },
     expiresAt: Date.now() + 7 * 24 * 60 * 60 * 1000 // 7 days validity
   };
   return encryptToken(payload);
 }
 
-// Check Authorization headers or fall back to cookies
-function getUserFromRequest(req) {
-  if (req.user) {
-    return req.user;
-  }
+// Check Authorization headers or fall back to cookies. Support token refreshing.
+async function getUserFromRequest(req, res) {
   const authHeader = req.headers.authorization;
+  console.log(`[getUserFromRequest] Headers authorization: ${authHeader ? "Present" : "Missing"}`);
+  console.log(`[getUserFromRequest] Session user:`, req.user ? JSON.stringify({ ...req.user, accessToken: req.user.accessToken ? `${req.user.accessToken.substring(0, 10)}...` : null }, null, 2) : "None");
+
+  let user = null;
+  let isFromToken = false;
+  let decryptedPayload = null;
+
   if (authHeader && authHeader.startsWith("Bearer ")) {
     const token = authHeader.split(" ")[1];
     const decrypted = decryptToken(token);
+    console.log(`[getUserFromRequest] Decrypted JWT payload:`, decrypted ? JSON.stringify({ ...decrypted, user: { ...decrypted.user, accessToken: decrypted.user.accessToken ? `${decrypted.user.accessToken.substring(0, 10)}...` : null } }, null, 2) : "Decryption failed");
     if (decrypted && decrypted.expiresAt > Date.now()) {
-      return decrypted.user;
+      user = decrypted.user;
+      isFromToken = true;
+      decryptedPayload = decrypted;
     }
   }
+
+  // Fallback to session if no valid Bearer token
+  if (!user && req.user) {
+    user = req.user;
+    isFromToken = false;
+  }
+
+  if (user) {
+    // Check if Google Access Token is expired or about to expire in 5 minutes
+    const bufferTime = 5 * 60 * 1000; // 5 minutes
+    const now = Date.now();
+    const isExpired = user.googleExpiresAt && (user.googleExpiresAt - bufferTime < now);
+
+    console.log(`[getUserFromRequest] User identified: ${user.emails?.[0]?.value || user.displayName}`);
+    console.log(`- Google Access Token Expiration: ${user.googleExpiresAt ? new Date(user.googleExpiresAt).toISOString() : "Unknown"}`);
+    console.log(`- Is Expired/Expiring Soon: ${isExpired ? "Yes" : "No"}`);
+
+    if (isExpired && user.refreshToken) {
+      console.log(`- Access Token is expired or expiring soon. Refreshing using Refresh Token...`);
+      const refreshResult = await refreshGoogleAccessToken(user.refreshToken);
+      if (refreshResult) {
+        user.accessToken = refreshResult.accessToken;
+        user.googleExpiresAt = Date.now() + refreshResult.expiresIn * 1000;
+        console.log(`- Google Access Token refreshed successfully. New expiry: ${new Date(user.googleExpiresAt).toISOString()}`);
+
+        // Update the source
+        if (isFromToken && res && decryptedPayload) {
+          decryptedPayload.user = user;
+          const newToken = encryptToken(decryptedPayload);
+          console.log("- Attaching new Bearer token to response header X-New-Token");
+          res.setHeader("X-New-Token", newToken);
+        } else if (req.user) {
+          req.user.accessToken = user.accessToken;
+          req.user.googleExpiresAt = user.googleExpiresAt;
+        }
+      } else {
+        console.warn(`- Failed to refresh Google Access Token. Continuing with existing token.`);
+      }
+    } else if (isExpired && !user.refreshToken) {
+      console.warn(`- Access Token is expired/expiring soon but no Refresh Token was found in user object!`);
+    }
+
+    return user;
+  }
+
   return null;
 }
 
@@ -162,8 +278,10 @@ app.use(cors({
   },
   credentials: true,
   methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
-  allowedHeaders: ["Content-Type", "Authorization"]
+  allowedHeaders: ["Content-Type", "Authorization"],
+  exposedHeaders: ["X-New-Token"]
 }));
+
 
 app.use(express.json());
 app.use(express.static(path.join(__dirname, "../frontend")));
@@ -199,8 +317,26 @@ passport.use(
       clientSecret: process.env.CLIENT_SECRET,
       callbackURL: process.env.CALLBACK_URL || "/auth/google/callback",
     },
-    (accessToken, refreshToken, profile, done) => {
+    (accessToken, refreshToken, params, profile, done) => {
+      console.log("\n[OAuth Callback Executing]");
+      console.log("- Access Token:", accessToken ? `${accessToken.substring(0, 10)}...` : "None");
+      console.log("- Refresh Token:", refreshToken ? "Present" : "Missing/Null");
+      console.log("- Params (Scopes, expiration, etc):", JSON.stringify(params, null, 2));
+      console.log("- Profile ID:", profile.id);
+      console.log("- Profile Name:", profile.displayName);
+
+      // Attach token details to profile object
       profile.accessToken = accessToken;
+      profile.refreshToken = refreshToken; // can be undefined/null if offline access not prompted or user already consented
+      profile.googleExpiresAt = params.expires_in ? (Date.now() + params.expires_in * 1000) : null;
+      profile.scopes = params.scope ? params.scope.split(" ") : [];
+
+      console.log("- Saved Scopes in Profile:", profile.scopes);
+      if (profile.googleExpiresAt) {
+        console.log("- Token Expiry Time:", new Date(profile.googleExpiresAt).toISOString());
+      }
+      console.log("");
+
       return done(null, profile);
     }
   )
@@ -214,13 +350,15 @@ authRouter.get(
     const redirectUri = req.query.redirect_uri || "https://bulk-email-sender-ashy.vercel.app/dashboard.html";
     const state = Buffer.from(JSON.stringify({ redirectUri })).toString("base64");
     
+    console.log(`[OAuth Initiate /auth/google] Redirect URI: ${redirectUri}`);
     passport.authenticate("google", {
       scope: [
         "profile",
         "email",
         "https://www.googleapis.com/auth/gmail.send"
       ],
-      prompt: "select_account",
+      accessType: "offline",
+      prompt: "select_account consent",
       state: state
     })(req, res, next);
   }
@@ -229,6 +367,7 @@ authRouter.get(
 authRouter.get(
   "/google/callback",
   (req, res, next) => {
+    console.log(`[OAuth Callback Route] Hit /auth/google/callback. Query state: ${req.query.state ? "Present" : "Missing"}`);
     let failureRedirect = "https://bulk-email-sender-ashy.vercel.app/index.html";
     if (req.query.state) {
       try {
@@ -257,17 +396,24 @@ authRouter.get(
     }
     
     if (!req.user) {
+      console.error("[OAuth Callback Route] Authentication completed but no req.user present in request.");
       const parsed = new URL(redirectUri);
       return res.redirect(`${parsed.origin}/index.html?error=no_user`);
     }
 
+    console.log(`[OAuth Callback Route] User authenticated: ${req.user.emails?.[0]?.value || req.user.displayName}`);
+    console.log(`- Scope:`, req.user.scopes);
+    console.log(`- Google Access Token:`, req.user.accessToken ? `${req.user.accessToken.substring(0, 10)}...` : "None");
+    console.log(`- Google Refresh Token:`, req.user.refreshToken ? "Present" : "Missing");
+
     const token = generateToken(req.user);
+    console.log(`[OAuth Callback Route] Generated JWT. Redirecting user to: ${redirectUri}`);
     res.redirect(`${redirectUri}?token=${token}`);
   }
 );
 
-authRouter.get("/me", (req, res) => {
-  const user = getUserFromRequest(req);
+authRouter.get("/me", async (req, res) => {
+  const user = await getUserFromRequest(req, res);
   res.json({
     loggedIn: !!user,
     user: user || null
@@ -291,8 +437,8 @@ authRouter.post("/logout", (req, res, next) => {
 app.use("/auth", authRouter);
 
 // Backward compatibility aliases
-app.get("/user", (req, res) => {
-  const user = getUserFromRequest(req);
+app.get("/user", async (req, res) => {
+  const user = await getUserFromRequest(req, res);
   res.json({
     loggedIn: !!user,
     user: user || null
@@ -586,7 +732,7 @@ app.get("/track/click/:emailId", async (req, res) => {
 
 // History and Stats APIs
 app.get("/api/history", async (req, res) => {
-  const user = getUserFromRequest(req);
+  const user = await getUserFromRequest(req, res);
   if (!user) {
     console.warn(`[API Log] Unauthorized history access attempt`);
     return res.status(401).json({ success: false, error: "Unauthorized" });
@@ -642,7 +788,7 @@ app.get("/api/history", async (req, res) => {
 });
 
 app.get("/api/stats", async (req, res) => {
-  const user = getUserFromRequest(req);
+  const user = await getUserFromRequest(req, res);
   if (!user) {
     console.warn(`[API Log] Unauthorized stats access attempt`);
     return res.status(401).json({ success: false, error: "Unauthorized" });
@@ -665,7 +811,7 @@ app.post(
   upload.single("attachment"),
   async (req, res) => {
     try {
-      const user = getUserFromRequest(req);
+      const user = await getUserFromRequest(req, res);
 
       if (!user) {
         return res.json({
@@ -681,6 +827,11 @@ app.post(
       const sent = [];
       const failed = [];
 
+      // Query tokeninfo for debug logging right before sending campaign
+      console.log(`\n[Gmail Send Campaign] User initiating email sending: ${user.emails?.[0]?.value || user.displayName}`);
+      console.log(`- Authorization Header to be used: Bearer ${user.accessToken ? `${user.accessToken.substring(0, 10)}...` : "None"}`);
+      await logTokenInfo(user.accessToken, "Before Campaign Send");
+
       // Send emails in parallel using Gmail HTTP API
       const emailPromises = emails.map(async (email) => {
         const emailId = crypto.randomBytes(16).toString("hex");
@@ -692,8 +843,6 @@ app.post(
         // Append open tracking pixel
         const trackingPixelTag = `<img src="${backendOrigin}/track/open/${emailId}" width="1" height="1" style="display:none;" />`;
         trackedMessage += trackingPixelTag;
-
-
 
         const mailOptions = {
           from: user.emails[0].value,
@@ -726,6 +875,9 @@ app.post(
             .replace(/\//g, '_')
             .replace(/=+$/, '');
 
+          console.log(`[Gmail Send API Call] Sending to: ${email}`);
+          console.log(`- Authorization Header for request: Bearer ${user.accessToken ? `${user.accessToken.substring(0, 10)}...` : "None"}`);
+
           const response = await fetch("https://gmail.googleapis.com/gmail/v1/users/me/messages/send", {
             method: "POST",
             headers: {
@@ -739,6 +891,7 @@ app.post(
 
           const data = await response.json();
           if (!response.ok) {
+            console.error(`[Gmail API Error Response] Status: ${response.status}`, JSON.stringify(data, null, 2));
             throw new Error(data.error?.message || "Failed to send via Gmail API");
           }
 

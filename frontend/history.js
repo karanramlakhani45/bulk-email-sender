@@ -1,6 +1,23 @@
+// Global fetch interceptor to handle token renewal from X-New-Token header
+const originalFetch = window.fetch;
+window.fetch = async function (...args) {
+  const response = await originalFetch(...args);
+  try {
+    const newToken = response.headers.get("X-New-Token");
+    if (newToken) {
+      console.log("[Fetch Interceptor] Detected X-New-Token header. Updating localStorage.");
+      localStorage.setItem("auth_token", newToken);
+    }
+  } catch (err) {
+    console.error("[Fetch Interceptor] Error reading X-New-Token header:", err);
+  }
+  return response;
+};
+
 if (window.location.hostname === "127.0.0.1") {
   window.location.hostname = "localhost";
 }
+
 
 const API_BASE_URL = window.location.hostname === "localhost" || window.location.hostname === "127.0.0.1"
   ? `${window.location.protocol}//${window.location.hostname}:5000`
