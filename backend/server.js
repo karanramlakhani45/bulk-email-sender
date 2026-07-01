@@ -448,45 +448,33 @@ passport.deserializeUser((user, done) => {
 
 console.log("CLIENT_ID:", process.env.CLIENT_ID);
 console.log("CALLBACK_URL:", process.env.CALLBACK_URL);
+
+
 passport.use(
-  
+  new GoogleStrategy(
     {
       clientID: process.env.CLIENT_ID,
       clientSecret: process.env.CLIENT_SECRET,
       callbackURL: process.env.CALLBACK_URL || "/auth/google/callback",
+      passReqToCallback: false
     },
     (accessToken, refreshToken, params, profile, done) => {
       console.log("\n[OAuth Callback Executing]");
       console.log("- Access Token:", accessToken ? `${accessToken.substring(0, 10)}...` : "None");
-      console.log("- Renew GoogleStrategy(fresh Token:", refreshToken ? "Present" : "Missing/Null");
-      console.log("- Params (Scopes, expiration, etc):", JSON.stringify(params, null, 2));
-      console.log("- Profile ID:", profile.id);
-      console.log("- Profile Name:", profile.displayName);
+      console.log("- Refresh Token:", refreshToken ? "Present" : "Missing/Null");
 
-      // Attach token details to profile object
       profile.accessToken = accessToken;
-      profile.refreshToken = refreshToken; // can be undefined/null if offline access not prompted or user already consented
-      profile.googleExpiresAt = params.expires_in ? (Date.now() + params.expires_in * 1000) : null;
+      profile.refreshToken = refreshToken;
+      profile.googleExpiresAt = params.expires_in
+        ? Date.now() + params.expires_in * 1000
+        : null;
       profile.scopes = params.scope ? params.scope.split(" ") : [];
-
-      console.log("\n[OAuth callback completed]");
-      console.log("- Profile ID:", profile.id);
-      console.log("- Profile Name:", profile.displayName);
-      console.log("- Requested Scopes (App Config):", [
-        "profile",
-        "email",
-        "https://www.googleapis.com/auth/gmail.send"
-      ]);
-      console.log("- Granted Scopes (Google Response):", profile.scopes);
-      console.log("- Access Token:", accessToken ? `${accessToken.substring(0, 10)}...` : "None");
-      console.log("- Refresh Token availability:", refreshToken ? "Present" : "Missing/Null");
-      console.log("- Token Expiry Time:", profile.googleExpiresAt ? new Date(profile.googleExpiresAt).toISOString() : "None");
-      console.log("");
 
       return done(null, profile);
     }
   )
 );
+
 
 const authRouter = express.Router();
 
