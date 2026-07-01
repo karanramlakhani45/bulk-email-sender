@@ -157,6 +157,38 @@ function getGmailClient(user, res = null) {
   return google.gmail({ version: "v1", auth: oauth2Client });
 }
 
+async function validateTokenScopes(accessToken) {
+  try {
+    if (!accessToken) {
+      return { valid: false, error: "Access token is empty/missing" };
+    }
+    const response = await fetch(`https://oauth2.googleapis.com/tokeninfo?access_token=${accessToken}`);
+    const data = await response.json();
+    if (!response.ok) {
+      console.error("[Token Scope Validation] Token info request failed:", JSON.stringify(data));
+      return { valid: false, error: data.error_description || "Invalid token" };
+    }
+    
+    const scopes = data.scope ? data.scope.split(" ") : [];
+    const hasGmailSend = scopes.includes("https://www.googleapis.com/auth/gmail.send");
+    
+    console.log("[Token Scope Validation] Token details:", {
+      expires_in: data.expires_in,
+      scopes: scopes,
+      hasGmailSend: hasGmailSend
+    });
+    
+    if (!hasGmailSend) {
+      return { valid: false, error: "Missing required scope: gmail.send", scopes };
+    }
+    
+    return { valid: true, scopes, expiresIn: data.expires_in };
+  } catch (err) {
+    console.error("[Token Scope Validation] Exception:", err.message);
+    return { valid: false, error: err.message };
+  }
+}
+
 async function checkMailServiceStatus(gmailClient) {
   try {
     console.log("[Gmail Readiness Check] Querying Gmail user profile to verify service is enabled...");
@@ -218,19 +250,29 @@ async function getUserFromRequest(req, res) {
     // Check if Google Access Token is expired or about to expire in 5 minutes
     const bufferTime = 5 * 60 * 1000; // 5 minutes
     const now = Date.now();
-    const isExpired = user.googleExpiresAt && (user.googleExpiresAt - bufferTime < now);
+    let isExpired = user.googleExpiresAt && (user.googleExpiresAt - bufferTime < now);
 
     console.log(`[getUserFromRequest] User identified: ${user.emails?.[0]?.value || user.displayName}`);
     console.log(`- Google Access Token Expiration: ${user.googleExpiresAt ? new Date(user.googleExpiresAt).toISOString() : "Unknown"}`);
     console.log(`- Is Expired/Expiring Soon: ${isExpired ? "Yes" : "No"}`);
 
+    // Before every verify, dynamically check token validity and scopes via tokeninfo endpoint
+    let tokenStatus = await validateTokenScopes(user.accessToken);
+    if (!tokenStatus.valid) {
+      console.warn(`[getUserFromRequest] Active token is invalid or lacks gmail.send (${tokenStatus.error}). Forcing refresh...`);
+      isExpired = true; // force refresh
+    }
+
     if (isExpired && user.refreshToken) {
-      console.log(`- Access Token is expired or expiring soon. Refreshing using Refresh Token...`);
+      console.log(`- Access Token is expired or lacks scopes. Refreshing using Refresh Token...`);
       const refreshResult = await refreshGoogleAccessToken(user.refreshToken);
       if (refreshResult) {
         user.accessToken = refreshResult.accessToken;
         user.googleExpiresAt = Date.now() + refreshResult.expiresIn * 1000;
         console.log(`- Google Access Token refreshed successfully. New expiry: ${new Date(user.googleExpiresAt).toISOString()}`);
+
+        // Revalidate refreshed token
+        tokenStatus = await validateTokenScopes(user.accessToken);
 
         // Update the source
         if (isFromToken && res && decryptedPayload) {
@@ -243,10 +285,16 @@ async function getUserFromRequest(req, res) {
           req.user.googleExpiresAt = user.googleExpiresAt;
         }
       } else {
-        console.warn(`- Failed to refresh Google Access Token. Continuing with existing token.`);
+        console.warn(`- Failed to refresh Google Access Token.`);
       }
     } else if (isExpired && !user.refreshToken) {
-      console.warn(`- Access Token is expired/expiring soon but no Refresh Token was found in user object!`);
+      console.warn(`- Access Token needs refresh but no Refresh Token was found in user object!`);
+    }
+
+    // If scopes validation still fails after refresh check, return null (destroying stale credentials)
+    if (!tokenStatus.valid) {
+      console.error(`[getUserFromRequest] Stale/invalid credentials detected for user ${user.emails?.[0]?.value || user.displayName}. Scope validation failed: ${tokenStatus.error}. Rejecting session to force re-consent.`);
+      return null;
     }
 
     return user;
@@ -386,10 +434,18 @@ passport.use(
       profile.googleExpiresAt = params.expires_in ? (Date.now() + params.expires_in * 1000) : null;
       profile.scopes = params.scope ? params.scope.split(" ") : [];
 
-      console.log("- Saved Scopes in Profile:", profile.scopes);
-      if (profile.googleExpiresAt) {
-        console.log("- Token Expiry Time:", new Date(profile.googleExpiresAt).toISOString());
-      }
+      console.log("\n[OAuth callback completed]");
+      console.log("- Profile ID:", profile.id);
+      console.log("- Profile Name:", profile.displayName);
+      console.log("- Requested Scopes (App Config):", [
+        "profile",
+        "email",
+        "https://www.googleapis.com/auth/gmail.send"
+      ]);
+      console.log("- Granted Scopes (Google Response):", profile.scopes);
+      console.log("- Access Token:", accessToken ? `${accessToken.substring(0, 10)}...` : "None");
+      console.log("- Refresh Token availability:", refreshToken ? "Present" : "Missing/Null");
+      console.log("- Token Expiry Time:", profile.googleExpiresAt ? new Date(profile.googleExpiresAt).toISOString() : "None");
       console.log("");
 
       return done(null, profile);
@@ -1010,7 +1066,13 @@ app.post(
             error_message: null
           });
         } catch (err) {
-          console.error(`Failed sending to ${email}:`, err);
+          console.error(`[Gmail API error details] Failed sending to ${email}:`, {
+            message: err.message,
+            code: err.code,
+            errors: err.errors,
+            status: err.status,
+            stack: err.stack
+          });
           failed.push({ email, error: err.message });
 
           // Save failed log in SQLite DB
