@@ -189,15 +189,49 @@ async function validateTokenScopes(accessToken) {
   }
 }
 
-async function checkMailServiceStatus(gmailClient) {
+async function checkMailServiceStatus(gmailClient, user) {
   try {
     console.log("[Gmail Readiness Check] Querying Gmail user profile to verify service is enabled...");
     const res = await gmailClient.users.getProfile({ userId: "me" });
     console.log("[Mail service enabled] Mail service verification succeeded for user:", res.data.emailAddress);
     return { enabled: true, profile: res.data };
   } catch (err) {
-    console.error("[Gmail Readiness Check] Mail service is NOT enabled or verification failed:", err.message);
-    return { enabled: false, error: err.message };
+    console.warn("[Gmail Readiness Check] Verification request returned an error:", err.message);
+    
+    // Case 1: Gmail API authentication error
+    const isAuthError = err.code === 401 || (err.message && (
+      err.message.toLowerCase().includes("invalid_grant") || 
+      err.message.toLowerCase().includes("invalid credentials") ||
+      err.message.toLowerCase().includes("auth")
+    ));
+    if (isAuthError) {
+      console.error("[Gmail Readiness Check] Authentication error: token invalid/expired.");
+      return { enabled: false, error: "Gmail API authentication failed.", type: "AUTH_ERROR" };
+    }
+    
+    // Case 2: Missing OAuth scope or 403 Forbidden due to limited scope (e.g. only gmail.send)
+    const isForbidden = err.code === 403 || (err.message && err.message.toLowerCase().includes("permission"));
+    if (isForbidden) {
+      const hasGmailSend = user && user.scopes && user.scopes.includes("https://www.googleapis.com/auth/gmail.send");
+      if (hasGmailSend) {
+        console.log("[Gmail Readiness Check] 403 Forbidden on getProfile is expected since only gmail.send is requested. Marking as active.");
+        return { enabled: true, profile: null, type: "SCOPE_VERIFIED" };
+      } else {
+        console.error("[Gmail Readiness Check] Missing required scope: gmail.send");
+        return { enabled: false, error: "Missing required scope: gmail.send", type: "MISSING_SCOPE" };
+      }
+    }
+    
+    // Case 3: User mail service disabled (Google API error message 'Mail service not enabled')
+    const isServiceDisabled = err.message && err.message.toLowerCase().includes("mail service not enabled");
+    if (isServiceDisabled) {
+      console.error("[Gmail Readiness Check] User mail service is disabled.");
+      return { enabled: false, error: "Mail service not enabled for this Google account.", type: "SERVICE_DISABLED" };
+    }
+    
+    // Case 4: Temporary/transient Gmail API failure (e.g. rate limit 429, network timeout, 5xx backend error)
+    console.log("[Gmail Readiness Check] Temporary or transient API failure. Retaining enabled status.");
+    return { enabled: true, warning: err.message, type: "TEMPORARY_FAILURE" };
   }
 }
 
@@ -532,7 +566,7 @@ authRouter.get("/me", async (req, res) => {
   if (user) {
     try {
       const gmailClient = getGmailClient(user, res);
-      const status = await checkMailServiceStatus(gmailClient);
+      const status = await checkMailServiceStatus(gmailClient, user);
       mailServiceEnabled = status.enabled;
       gmailProfile = status.profile;
     } catch (err) {
@@ -573,7 +607,7 @@ app.get("/user", async (req, res) => {
   if (user) {
     try {
       const gmailClient = getGmailClient(user, res);
-      const status = await checkMailServiceStatus(gmailClient);
+      const status = await checkMailServiceStatus(gmailClient, user);
       mailServiceEnabled = status.enabled;
       gmailProfile = status.profile;
     } catch (err) {
@@ -985,7 +1019,7 @@ app.post(
       }
 
       // 3. Verify Gmail Mail Service Status
-      const serviceStatus = await checkMailServiceStatus(gmailClient);
+      const serviceStatus = await checkMailServiceStatus(gmailClient, user);
       if (!serviceStatus.enabled) {
         console.error(`[Gmail Send Campaign] Sending blocked: Mail service not enabled. Reason: ${serviceStatus.error}`);
         return res.json({
